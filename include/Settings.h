@@ -28,3 +28,8 @@ char  rebootTopic[40]   =   "iotdm-1/mgmt/initiate/device/reboot";
 unsigned long Universal_1_sec_Interval  = 1000UL;                                                   //Variable configurable remotamente sobre el interbalo de publicacion
 unsigned long Btn_conf_Mode_Interval = 2000UL;                                                      //variable configurable remotamente sobre el intervalo de espera para modo de funcionamiento de boton.
 
+//-------- Variables de ERROR EN ENVIO de paquetes de MQTT ANTES DE REINICIO
+#define FAILTRESHOLD 150
+const float BATTRESHHOLD = 3.3;
+
+

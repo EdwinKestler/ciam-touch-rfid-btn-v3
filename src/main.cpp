@@ -87,6 +87,7 @@ byte incomingdata;
 String inputString;
 char SearchSValue;
 byte tagID[DataLenght];
+String OldTagRead = "1";                                                                            //VAriable para guardar la ultima tag leida y evitar lecturas consecutivas
 char charBuff[DataLenght];
 boolean readedTag = false;
 unsigned int count = 0;
@@ -95,25 +96,33 @@ String msg = "";
 String IDE_ventoB;
 int IdEventoB = 0;
 //--------------------------------------------------------------------------------------------------//variables Globales para reinicio de hardware cada 24 horas (pendiente de cambio por time EPOCH)
-unsigned long lastNResetMillis;                                                                      //Variable para llevar conteo del tiempo desde la ultima publicacion
+unsigned long Last_Normal_Reset_Millis;                                                             //Variable para llevar conteo del tiempo desde la ultima publicacion
+unsigned long Last_Update_Millis;                                                                   //Variable para llevar conteo del tiempo desde la ultima publicacion
+unsigned long Last_Warning;                                                                         //Variable para llevar conteo del tiempo desde la ultima publicacion
+//--------------------------------------------------------------------------------------------------//Variables Globales de alerta
+int BeepSignalWarning = 0;
+float VBat = 0;
+int hora= 0;
 //--------------------------------------------------------------------------------------------------//variables Globales de Core de Wifi para envio de estado de boton
 
 int WifiSignal;
 String Core_Version = ESP.getCoreVersion();
-char SDK_version = ESP.getSdkVersion();
+String SDK_version = ESP.getSdkVersion();
 unsigned int CPU_Freq = ESP.getCpuFreqMHz();
 unsigned int Sketch_Size = ESP.getSketchSize();
 
-//**********************************************************************************FINITE_STATE_MACHINE_STATES:
+//***************************************************************************************FINITE_STATE_MACHINE_STATES:
 int fsm_state;
 
 //--------------------------------------------------------------------------------------------------Finite State Machine States
 #define STATE_IDLE                    0
 #define STATE_TRANSMIT_BOTON_DATA     1
 #define STATE_TRANSMIT_CARD_DATA      2
+#define STATE_UPDATE                  3
+#define STATE_UPDATE_TIME             6
 #define STATE_RDY_TO_UPDATE_OTA       7
 
-//**********************************************************************************FIN DE DEFINICION DE VARIABLES GLOBALES
+//***************************************************************************************FIN DE DEFINICION DE VARIABLES GLOBALES
 //--------------------------------------------------------------------------------------------------callback notifying us of the need to save config
 void saveConfigCallback () {
   Serial.println("Deberia Guardar la configuracion");
@@ -382,6 +391,37 @@ void mqttConnect() {
       Blanco.CFlash(flash_corto);
     }
     Serial.println();                                                                               //dejar un espacio en la terminal para diferenciar los mensajes.
+  }
+}
+//----------------------------------------------------------------------Funcion de REConexion a Servicio de MQTT
+void MQTTreconnect() {
+  int retry = 0;
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print(F("Attempting MQTT connection..."));
+    Blanco.CFlash(flash_corto);
+    alarm.Beep(tono_corto);
+    char charBuf[30];
+    String CID (clientId + NodeID);
+    CID.toCharArray(charBuf, 30);
+    if (client.connect(charBuf, btnconfig.MQTT_User, btnconfig.MQTT_Password)) {
+      Serial.println(F("connected"));
+    }else {
+      Purpura.CFlash(flash_medio);
+      alarm.Beep(tono_medio);
+      Serial.print(F("failed, rc="));
+      Serial.print(client.state());
+      Serial.print(F(" try again in 3 seconds,"));
+      Serial.print(F(" retry #:"));
+      Serial.println(retry);
+      if (retry > 10) {
+        ESP.restart();
+        retry = 0;
+      }
+      retry++;
+      // Wait 3 seconds before retrying
+      delay(3000);
+    }
   }
 }
 //--------------------------------------------------------------------------------------------------//Funcion encargada de subscribir el nodo a los servicio de administracion remota y de notificar los para metros configurables al mismo
@@ -654,19 +694,30 @@ void publishRF_ID_Manejo (String IDModulo, String MSG, float vValue, int RSSIV, 
 
 //------------------------------------------------------------------------------------------------Funcion de reseteo normal
 void NormalReset() {
-  if (millis() - lastNResetMillis > 60 * 60 * Universal_1_sec_Interval) {
+  if (millis() - Last_Normal_Reset_Millis > 60 * 60 * Universal_1_sec_Interval) {
     hora++;
     WifiSignal = WiFi.RSSI();
     if (hora > 24) {
-      msg = ("24h NReset");
+      msg = ("24h Normal Reset");
       VBat = 4.2; //Bateria();
       publishRF_ID_Manejo(NodeID, msg, VBat, WifiSignal, published, failed, ISO8601, Smacaddrs, Sipaddrs);        //publishRF_ID_Manejo (String IDModulo,String MSG,float vValue, int fail,String Tstamp)
       void disconnect ();
       hora = 0;
       ESP.restart();
     }
-    lastNResetMillis = millis(); //Actulizar la ultima hora de envio
+    Last_Normal_Reset_Millis = millis(); //Actulizar la ultima hora de envio
   }
+}
+//--------------------------------------------------------------------------Funcion de checkear alarmas.!!!------------------------------------------------------------------------------
+void checkalarms () {
+  if (WiFi.RSSI() < -85) {
+    if (BeepSignalWarning < 4) {
+      alarm.Beep(tono_largo);
+      BeepSignalWarning++;
+    }
+    Blanco.CFlash(flash_largo);
+  }
+  BeepSignalWarning = 0;
 }
   
 //**************************************************************************************************INICIO DE FUNCIONES DE LOOP
@@ -679,15 +730,13 @@ void loop() {
       readBtn();                                                                                    //leer si se presiono el boton
       NormalReset();
       checkalarms();
-      LocalWarning ();
-
-      if (millis() - lastUPDATEMillis > 30 * 60 * Universal_1_sec_Interval) {
-        lastUPDATEMillis = millis(); //Actulizar la ultima hora de envio
+      if (millis() - Last_Update_Millis > 30 * 60 * Universal_1_sec_Interval) {
+        Last_Update_Millis = millis(); //Actulizar la ultima hora de envio
         fsm_state = STATE_UPDATE;
       }
 
-      if (millis() - lastUPDATEMillis > 60 * 60 * Universal_1_sec_Interval) {
-        lastUPDATEMillis = millis(); //Actulizar la ultima hora de envio
+      if (millis() - Last_Update_Millis > 60 * 60 * Universal_1_sec_Interval) {
+        Last_Update_Millis = millis(); //Actulizar la ultima hora de envio
         fsm_state = STATE_UPDATE_TIME;
       }
 
