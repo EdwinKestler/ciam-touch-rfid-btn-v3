@@ -79,13 +79,27 @@ unsigned long flash_largo = 1000;                                               
 bool shouldSaveConfig = false;
 //--------------------------------------------------------------------------------------------------//MQTT_pubsubclient variables
 int failed, sent, published;                                                                        //Variables de conteo de mensajes enviados, fallidos y publicados
+//--------------------------------------------------------------------------------------------------//variables Globales de lectura de codigos RFID
+#define DataLenght 10
+#define TypesofCards 13
+
+byte incomingdata;
+String inputString;
+char SearchSValue;
+byte tagID[DataLenght];
+char charBuff[DataLenght];
+boolean readedTag = false;
+unsigned int count = 0;
+String msg = "";
+
 
 //**********************************************************************************FINITE_STATE_MACHINE_STATES:
 int fsm_state;
 
 //--------------------------------------------------------------------------------------------------Finite State Machine States
-#define STATE_IDLE 0
-#define STATE_RDY_TO_UPDATE_OTA 7
+#define STATE_IDLE                    0
+#define STATE_TRANSMIT_CARD_DATA      2
+#define STATE_RDY_TO_UPDATE_OTA       7
 
 //**********************************************************************************FIN DE DEFINICION DE VARIABLES GLOBALES
 //--------------------------------------------------------------------------------------------------callback notifying us of the need to save config
@@ -556,8 +570,6 @@ void readTag() {
   if (RFIDReader.available()) {
     if (RFIDReader.available() == 0x02) {                                                           //if data header is present.
       while (RFIDReader.available() > 0) {                                                          // If data available from reader
-      byte
-
         incomingdata = RFIDReader.read();
         /*Serial.print(count);
            Serial.print(F(":HEX:"));
