@@ -91,13 +91,25 @@ char charBuff[DataLenght];
 boolean readedTag = false;
 unsigned int count = 0;
 String msg = "";
+//--------------------------------------------------------------------------------------------------//variables Globales de lectura de eventos de boton
+String IDE_ventoB;
+int IdEventoB = 0;
+//--------------------------------------------------------------------------------------------------//variables Globales para reinicio de hardware cada 24 horas (pendiente de cambio por time EPOCH)
+unsigned long lastNResetMillis;                                                                      //Variable para llevar conteo del tiempo desde la ultima publicacion
+//--------------------------------------------------------------------------------------------------//variables Globales de Core de Wifi para envio de estado de boton
 
+int WifiSignal;
+String Core_Version = ESP.getCoreVersion();
+char SDK_version = ESP.getSdkVersion();
+unsigned int CPU_Freq = ESP.getCpuFreqMHz();
+unsigned int Sketch_Size = ESP.getSketchSize();
 
 //**********************************************************************************FINITE_STATE_MACHINE_STATES:
 int fsm_state;
 
 //--------------------------------------------------------------------------------------------------Finite State Machine States
 #define STATE_IDLE                    0
+#define STATE_TRANSMIT_BOTON_DATA     1
 #define STATE_TRANSMIT_CARD_DATA      2
 #define STATE_RDY_TO_UPDATE_OTA       7
 
@@ -597,7 +609,66 @@ void readTag() {
   }
   return;
 }
+//---------------------------------------------------------------------------------------------- fucnion de lectura de activiad del boton
+void readBtn() {
+  if (T_button.check == true){
+    Serial.println("Pressed");
+    IdEventoB ++;
+    IDE_ventoB = String (NodeID + IdEventoB);
+    Azul.Flash(flash_corto);
+    alarm.Beep(tono_corto);
+    fsm_state = STATE_TRANSMIT_BOTON_DATA; //PUTS FSM MACHINE ON TRANSMIT DATA MODE
+  }
+}
 
+//-------- Data de Manejo RF_ID_Manejo. Publish the data to MQTT server, the payload should not be bigger than 45 characters name field and data field counts. --------//
+void publishRF_ID_Manejo (String IDModulo, String MSG, float vValue, int RSSIV, int env, int fail, String Tstamp, String SMacAd, String SIpAd) {
+  StaticJsonBuffer<300> jsonBuffer;
+  JsonObject& root = jsonBuffer.createObject();
+  JsonObject& d = root.createNestedObject("d");
+  JsonObject& Ddata = d.createNestedObject("Ddata");
+  Ddata["ChipID"] = IDModulo;
+  Ddata["Msg"] = MSG;
+  Ddata["batt"] = vValue;
+  Ddata["RSSI"] = RSSIV;
+  Ddata["publicados"] = env;
+  Ddata["enviados"] = sent;
+  Ddata["fallidos"] = fail;
+  Ddata["Tstamp"] = Tstamp;
+  Ddata["Mac"] = SMacAd;
+  Ddata["Ip"] = SIpAd;
+  char MqttDevicedata[300];
+  root.printTo(MqttDevicedata, sizeof(MqttDevicedata));
+  Serial.println(F("publishing device data to manageTopic:"));
+  Serial.println(MqttDevicedata);
+  sent++;
+  if (client.publish(manageTopic, MqttDevicedata)) {
+    Serial.println(F("enviado data de dispositivo:OK"));
+    published ++;
+    failed = 0;
+  } else {
+    Serial.print(F("enviado data de dispositivo:FAILED"));
+    failed ++;
+  }
+}
+
+//------------------------------------------------------------------------------------------------Funcion de reseteo normal
+void NormalReset() {
+  if (millis() - lastNResetMillis > 60 * 60 * Universal_1_sec_Interval) {
+    hora++;
+    WifiSignal = WiFi.RSSI();
+    if (hora > 24) {
+      msg = ("24h NReset");
+      VBat = 4.2; //Bateria();
+      publishRF_ID_Manejo(NodeID, msg, VBat, WifiSignal, published, failed, ISO8601, Smacaddrs, Sipaddrs);        //publishRF_ID_Manejo (String IDModulo,String MSG,float vValue, int fail,String Tstamp)
+      void disconnect ();
+      hora = 0;
+      ESP.restart();
+    }
+    lastNResetMillis = millis(); //Actulizar la ultima hora de envio
+  }
+}
+  
 //**************************************************************************************************INICIO DE FUNCIONES DE LOOP
 //--------------------------------------------------------------------------------------------------Funcion de bucle infinito (Loop) este codigo se ejecuta repetitivamente
 void loop() {
