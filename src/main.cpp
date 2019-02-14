@@ -883,7 +883,6 @@ void loop() {
         failed ++;
       }
       Blanco.COff();
-      //publishRF_Boton(NodeID, identificador_ID_Evento_Boton, ISO8601);  // publishRF_Boton(String IDModulo, String EventID, String Tstamp)
       fsm_state = STATE_IDLE;
     break;
     

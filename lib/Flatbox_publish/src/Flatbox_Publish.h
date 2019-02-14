@@ -16,6 +16,9 @@ class flatbox {
         char * Evento_Tarjeta(String ID_Evento_Tarjeta, String Time_Stamp, String ID_Tarjeta_RFID);
     private:
         String _UID_Board;
+        char _Boton_Data[300];
+        char _Tarjeta_Data[300];
+        char _Manejo_Data[300];
 };
 
 #endif

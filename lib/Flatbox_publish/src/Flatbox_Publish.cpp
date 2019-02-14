@@ -32,10 +32,11 @@ char * flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_
     root.printTo(MqttDevicedata, sizeof(MqttDevicedata));
     Serial.println(F("publishing device data to manageTopic:"));
     Serial.println(MqttDevicedata);
-    return MqttDevicedata;
+    strcpy(_Manejo_Data, MqttDevicedata);
+    return _Manejo_Data;
 }
 
-char * flatbox::Evento_Boton(String Time_Stamp, String ID_Evento_Boton)
+ char * flatbox::Evento_Boton(String Time_Stamp, String ID_Evento_Boton)
 {
     StaticJsonBuffer<300> jsonBuffer;
     JsonObject& root = jsonBuffer.createObject();
@@ -48,7 +49,8 @@ char * flatbox::Evento_Boton(String Time_Stamp, String ID_Evento_Boton)
     root.printTo(MqttBotondata, sizeof(MqttBotondata));
     Serial.println(F("publishing device publishTopic metadata:"));
     Serial.println(MqttBotondata);
-    return MqttBotondata;
+    strcpy(_Boton_Data, MqttBotondata);
+    return _Boton_Data;
 }
 
 char * flatbox::Evento_Tarjeta(String ID_Evento_Tarjeta, String Time_Stamp, String ID_Tarjeta_RFID)
@@ -65,5 +67,6 @@ char * flatbox::Evento_Tarjeta(String ID_Evento_Tarjeta, String Time_Stamp, Stri
     root.printTo(MqttTagdata, sizeof(MqttTagdata));
     Serial.println(F("publishing Tag data to publishTopic:"));
     Serial.println(MqttTagdata);
-    return MqttTagdata;
+    strcpy(_Tarjeta_Data, MqttTagdata);
+    return _Tarjeta_Data;
 }
