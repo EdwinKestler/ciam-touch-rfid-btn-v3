@@ -7,19 +7,12 @@
 #include "Arduino.h"
 #include "Flatbox_Publish.h"
 #include <ArduinoJson.h>
-#include <PubSubClient.h>
-#include <ESP8266WiFi.h>
 
-WiFiClient Wifi_Client;                                                                               //Se establece el Cliente Wifi
-PubSubClient MQTT_Client(Wifi_Client);                                                                    //se establece el Cliente para el servicio MQTT
-
-
-flatbox::flatbox(String UID_Board, char* This_Topic){
-    _This_Topic = This_Topic;
+flatbox::flatbox(String UID_Board){
     _UID_Board = UID_Board;
 }
 
-bool flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_Board, int Nivel_RSSI, int Mensajes_enviados, int Mensajes_Fallidos, String Time_Stamp, String Direccion_Mac, String Direccion_IP)
+char * flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_Board, int Nivel_RSSI, int Mensajes_enviados, int Mensajes_Fallidos, String Time_Stamp, String Direccion_Mac, String Direccion_IP)
 {
     StaticJsonBuffer<300> jsonBuffer;
     JsonObject& root = jsonBuffer.createObject();
@@ -39,17 +32,10 @@ bool flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_Bo
     root.printTo(MqttDevicedata, sizeof(MqttDevicedata));
     Serial.println(F("publishing device data to manageTopic:"));
     Serial.println(MqttDevicedata);
-    //return MqttDevicedata;
-    if (MQTT_Client.publish(_This_Topic, MqttDevicedata)) {
-        Serial.println(F("enviado data de dispositivo:OK"));
-        return true;
-    } else {
-        Serial.print(F("enviado data de dispositivo:FAILED"));
-        return false;
-    }
+    return MqttDevicedata;
 }
 
-bool flatbox::Evento_Boton(String Time_Stamp, String ID_Evento_Boton)
+char * flatbox::Evento_Boton(String Time_Stamp, String ID_Evento_Boton)
 {
     StaticJsonBuffer<300> jsonBuffer;
     JsonObject& root = jsonBuffer.createObject();
@@ -62,16 +48,10 @@ bool flatbox::Evento_Boton(String Time_Stamp, String ID_Evento_Boton)
     root.printTo(MqttBotondata, sizeof(MqttBotondata));
     Serial.println(F("publishing device publishTopic metadata:"));
     Serial.println(MqttBotondata);
-    if (MQTT_Client.publish(_This_Topic, MqttBotondata)) {
-        Serial.println(F("enviado data de boton: OK"));
-        return true;
-    }else {
-        Serial.println(F("enviado data de boton: FAILED"));
-        return false;
-    }
+    return MqttBotondata;
 }
 
-bool flatbox::Evento_Tarjeta(String ID_Evento_Tarjeta, String Time_Stamp, String ID_Tarjeta_RFID)
+char * flatbox::Evento_Tarjeta(String ID_Evento_Tarjeta, String Time_Stamp, String ID_Tarjeta_RFID)
 {
     StaticJsonBuffer<300> jsonBuffer;
     JsonObject& root = jsonBuffer.createObject();
@@ -85,11 +65,5 @@ bool flatbox::Evento_Tarjeta(String ID_Evento_Tarjeta, String Time_Stamp, String
     root.printTo(MqttTagdata, sizeof(MqttTagdata));
     Serial.println(F("publishing Tag data to publishTopic:"));
     Serial.println(MqttTagdata);
-    if (MQTT_Client.publish(_This_Topic, MqttTagdata)) {
-        Serial.println(F("enviado data de RFID: OK"));
-        return true;
-    } else {
-        Serial.println(F("enviado data de RFID: FAILED"));
-        return false;
-    }
+    return MqttTagdata;
 }

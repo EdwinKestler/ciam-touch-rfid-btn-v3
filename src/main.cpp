@@ -69,9 +69,9 @@ BlinkRGB Azul (D6);                                                             
 BlinkRGB Verde (D7);                                                                                //definicion del puerto fisico en el board para el led de color Verde
 BlinkRGB Rojo (D8);                                                                                 //definicion del puerto fisico en el board para el led de color Rojo
 //--------------------------------------------------------------------------------------------------//definicion de Topicos de acuerdo a publicacion
-flatbox Boton_Data_Topic  (NodeID, publishTopic);
-flatbox Tarjeta_Data_Topic(NodeID, publishTopic);
-flatbox Manejo_Data_Topic (NodeID, manageTopic);
+flatbox Boton_Data_Json  (NodeID);
+flatbox Tarjeta_Data_Json(NodeID);
+flatbox Manejo_Data_Json (NodeID);
 //--------------------------------------------------------------------------------------------------definicion de pines de Boton Touch
 TouchPadButton T_button(D0);                                                                        //definicion del puerto fisico en el board para el boton capacitivo
 int pressed_count = 0;                                                                              //definicion de variable que almacena las veces que ha sido presionado el boton
@@ -384,8 +384,8 @@ void callback(char* topic, byte* payload, unsigned int payloadLength) {         
   }
 }
 //--------------------------------------------------------------------------------------------------//definicion de Cliente WIFI para ESP8266 y cliente de publicacion y subcripcion
-//WiFiClient wifiClient;                                                                              //Se establece el Cliente Wifi
-//PubSubClient client(wifiClient);                                                                    //se establece el Cliente para el servicio MQTT
+WiFiClient wifiClient;                                                                              //Se establece el Cliente Wifi
+PubSubClient client(wifiClient);                                                                    //se establece el Cliente para el servicio MQTT
 //--------------------------------------------------------------------------------------------------//funcion para conectar al servidor de MQTT
 void mqttConnect() {
   //int port_parsed = String(btnconfig.MQTT_Port).toInt();
@@ -871,7 +871,19 @@ void loop() {
       //Send the data
       Serial.println(F("BOTON DATA SENT"));
       CheckTime();
-      publishRF_Boton(NodeID, identificador_ID_Evento_Boton, ISO8601);  // publishRF_Boton(String IDModulo, String EventID, String Tstamp)
+      if (client.publish(publishTopic, Boton_Data_Json.Evento_Boton(ISO8601, identificador_ID_Evento_Boton))) {
+        Serial.println(F("enviado data de boton: OK"));
+        Verde.Flash(flash_corto);
+        alarm.Beep(tono_corto);
+        published ++;
+        failed = 0;
+      } else {
+        Serial.println(F("enviado data de boton: FAILED"));
+        Rojo.Flash(flash_corto);
+        failed ++;
+      }
+      Blanco.COff();
+      //publishRF_Boton(NodeID, identificador_ID_Evento_Boton, ISO8601);  // publishRF_Boton(String IDModulo, String EventID, String Tstamp)
       fsm_state = STATE_IDLE;
     break;
     
@@ -881,28 +893,7 @@ void loop() {
       //Send the card data
       Serial.println(F("CARD DATA SENT"));
       CheckTime();
-      //publishRF_ID_Lectura(NodeID, ISO8601, inputString);
-      if (OldTagRead != inputString) {
-        OldTagRead = inputString;
-        Numero_ID_Eventos_Tarjeta ++;
-        String Identificador_ID_Evento_Tarjeta = String (NodeID + "-" + Numero_ID_Eventos_Tarjeta);
-        if (Tarjeta_Data_Topic.Evento_Tarjeta(Identificador_ID_Evento_Tarjeta, ISO8601, inputString) == true){
-          Serial.println(F("enviado data de RFID: OK"));
-          Verde.Flash(flash_corto);
-          alarm.Beep(tono_corto);
-          published ++;
-          inputString = "";
-          failed = 0;
-        }else {
-          Serial.println(F("enviado data de RFID: FAILED"));
-          Rojo.Flash(flash_corto);
-          failed ++;
-          OldTagRead = "1";
-          inputString = "";
-        }
-      } else {
-        Serial.println("Este es una lectura consecutiva");
-      }
+      publishRF_ID_Lectura(NodeID, ISO8601, inputString);
       clearBufferArray();
       fsm_state = STATE_IDLE;
     break;
