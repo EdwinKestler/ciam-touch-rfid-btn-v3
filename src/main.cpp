@@ -69,7 +69,7 @@ BlinkRGB Azul (D6);                                                             
 BlinkRGB Verde (D7);                                                                                //definicion del puerto fisico en el board para el led de color Verde
 BlinkRGB Rojo (D8);                                                                                 //definicion del puerto fisico en el board para el led de color Rojo
 //--------------------------------------------------------------------------------------------------//definicion de Topicos de acuerdo a publicacion
-flatbox Boton_Data_Topic  (NodeID,"iot-2/evt/status/fmt/json");
+flatbox Boton_Data_Topic  (NodeID, publishTopic);
 flatbox Tarjeta_Data_Topic(NodeID, publishTopic);
 flatbox Manejo_Data_Topic (NodeID, manageTopic);
 //--------------------------------------------------------------------------------------------------definicion de pines de Boton Touch
@@ -384,8 +384,8 @@ void callback(char* topic, byte* payload, unsigned int payloadLength) {         
   }
 }
 //--------------------------------------------------------------------------------------------------//definicion de Cliente WIFI para ESP8266 y cliente de publicacion y subcripcion
-WiFiClient wifiClient;                                                                              //Se establece el Cliente Wifi
-PubSubClient client(wifiClient);                                                                    //se establece el Cliente para el servicio MQTT
+//WiFiClient wifiClient;                                                                              //Se establece el Cliente Wifi
+//PubSubClient client(wifiClient);                                                                    //se establece el Cliente para el servicio MQTT
 //--------------------------------------------------------------------------------------------------//funcion para conectar al servidor de MQTT
 void mqttConnect() {
   //int port_parsed = String(btnconfig.MQTT_Port).toInt();
@@ -819,6 +819,7 @@ boolean publishRF_ID_Lectura(String IDModulo, String Tstamp, String tagread) {
     }
   } else {
     Serial.println("Este es una lectura consecutiva");
+    return false;
   }
 }
 

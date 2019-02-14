@@ -10,8 +10,8 @@
 #include <PubSubClient.h>
 #include <ESP8266WiFi.h>
 
-WiFiClient wifiClient;                                                                               //Se establece el Cliente Wifi
-PubSubClient client(wifiClient);                                                                    //se establece el Cliente para el servicio MQTT
+WiFiClient Wifi_Client;                                                                               //Se establece el Cliente Wifi
+PubSubClient MQTT_Client(Wifi_Client);                                                                    //se establece el Cliente para el servicio MQTT
 
 
 flatbox::flatbox(String UID_Board, char* This_Topic){
@@ -40,7 +40,7 @@ bool flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_Bo
     Serial.println(F("publishing device data to manageTopic:"));
     Serial.println(MqttDevicedata);
     //return MqttDevicedata;
-    if (client.publish(_This_Topic, MqttDevicedata)) {
+    if (MQTT_Client.publish(_This_Topic, MqttDevicedata)) {
         Serial.println(F("enviado data de dispositivo:OK"));
         return true;
     } else {
@@ -62,7 +62,7 @@ bool flatbox::Evento_Boton(String Time_Stamp, String ID_Evento_Boton)
     root.printTo(MqttBotondata, sizeof(MqttBotondata));
     Serial.println(F("publishing device publishTopic metadata:"));
     Serial.println(MqttBotondata);
-    if (client.publish(_This_Topic, MqttBotondata)) {
+    if (MQTT_Client.publish(_This_Topic, MqttBotondata)) {
         Serial.println(F("enviado data de boton: OK"));
         return true;
     }else {
@@ -85,9 +85,11 @@ bool flatbox::Evento_Tarjeta(String ID_Evento_Tarjeta, String Time_Stamp, String
     root.printTo(MqttTagdata, sizeof(MqttTagdata));
     Serial.println(F("publishing Tag data to publishTopic:"));
     Serial.println(MqttTagdata);
-    if (client.publish(_This_Topic, MqttTagdata)) {
+    if (MQTT_Client.publish(_This_Topic, MqttTagdata)) {
         Serial.println(F("enviado data de RFID: OK"));
+        return true;
     } else {
         Serial.println(F("enviado data de RFID: FAILED"));
+        return false;
     }
 }
