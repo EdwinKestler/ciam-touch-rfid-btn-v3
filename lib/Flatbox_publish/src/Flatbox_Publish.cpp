@@ -14,11 +14,8 @@ WiFiClient wifiClient;                                                          
 PubSubClient client(wifiClient);                                                                    //se establece el Cliente para el servicio MQTT
 
 
-char * flatbox::Publish_Topic(char* This_Topic){
+flatbox::flatbox(String UID_Board, char* This_Topic){
     _This_Topic = This_Topic;
-}
-
-String flatbox::Unique_Board_ID(String UID_Board){
     _UID_Board = UID_Board;
 }
 

@@ -23,7 +23,7 @@
 //PublishSubscribe MQTT
 #include <PubSubClient.h>                                                                           //https://github.com/knolleary/pubsubclient/releases/tag/v2.3
 //Flatbox publish Service
-#include <FLatbox_Publish.h>
+#include <Flatbox_Publish.h>                                                                        //Libreria de manejo de Jason para Flatbox
 
 //**********************************************************************************FIN DE DEFINICION DE LIBRERIAS EXTERNAS
 //Estructura de infromacion de ambiente de configuracion
@@ -69,10 +69,9 @@ BlinkRGB Azul (D6);                                                             
 BlinkRGB Verde (D7);                                                                                //definicion del puerto fisico en el board para el led de color Verde
 BlinkRGB Rojo (D8);                                                                                 //definicion del puerto fisico en el board para el led de color Rojo
 //--------------------------------------------------------------------------------------------------//definicion de Topicos de acuerdo a publicacion
-ESP8266_ChipID (NodeID);
-Publish_Topic Boton_Data_Topic ("iot-2/evt/status/fmt/json");
-Publish_Topic Tarjeta_Data_Topic("");
-Publish_Topic 
+flatbox Boton_Data_Topic  (NodeID,"iot-2/evt/status/fmt/json");
+flatbox Tarjeta_Data_Topic(NodeID, publishTopic);
+flatbox Manejo_Data_Topic (NodeID, manageTopic);
 //--------------------------------------------------------------------------------------------------definicion de pines de Boton Touch
 TouchPadButton T_button(D0);                                                                        //definicion del puerto fisico en el board para el boton capacitivo
 int pressed_count = 0;                                                                              //definicion de variable que almacena las veces que ha sido presionado el boton
@@ -809,12 +808,14 @@ boolean publishRF_ID_Lectura(String IDModulo, String Tstamp, String tagread) {
       published ++;
       inputString = "";
       failed = 0;
+      return true;
     } else {
       Serial.println(F("enviado data de RFID: FAILED"));
       Rojo.Flash(flash_corto);
       failed ++;
       OldTagRead = "1";
       inputString = "";
+      return false;
     }
   } else {
     Serial.println("Este es una lectura consecutiva");
@@ -879,7 +880,28 @@ void loop() {
       //Send the card data
       Serial.println(F("CARD DATA SENT"));
       CheckTime();
-      publishRF_ID_Lectura(NodeID, ISO8601, inputString);
+      //publishRF_ID_Lectura(NodeID, ISO8601, inputString);
+      if (OldTagRead != inputString) {
+        OldTagRead = inputString;
+        Numero_ID_Eventos_Tarjeta ++;
+        String Identificador_ID_Evento_Tarjeta = String (NodeID + "-" + Numero_ID_Eventos_Tarjeta);
+        if (Tarjeta_Data_Topic.Evento_Tarjeta(Identificador_ID_Evento_Tarjeta, ISO8601, inputString) == true){
+          Serial.println(F("enviado data de RFID: OK"));
+          Verde.Flash(flash_corto);
+          alarm.Beep(tono_corto);
+          published ++;
+          inputString = "";
+          failed = 0;
+        }else {
+          Serial.println(F("enviado data de RFID: FAILED"));
+          Rojo.Flash(flash_corto);
+          failed ++;
+          OldTagRead = "1";
+          inputString = "";
+        }
+      } else {
+        Serial.println("Este es una lectura consecutiva");
+      }
       clearBufferArray();
       fsm_state = STATE_IDLE;
     break;

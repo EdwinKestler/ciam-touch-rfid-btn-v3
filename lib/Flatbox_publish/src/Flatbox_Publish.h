@@ -10,8 +10,7 @@
 
 class flatbox {
     public:
-        String Unique_Board_ID (String UID_Board);
-        char * Publish_Topic(char * This_Topic);
+        flatbox(String UID_Board, char * This_Topic);
         bool Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_Board, int Nivel_RSSI, int Mensajes_enviados, int Mensajes_Fallidos, String Time_Stamp, String Direccion_Mac, String Direccion_IP);
         bool Evento_Boton(String Time_Stamp, String ID_Evento_Boton);
         bool Evento_Tarjeta(String ID_Evento_Tarjeta, String Time_Stamp, String ID_Tarjeta_RFID);
