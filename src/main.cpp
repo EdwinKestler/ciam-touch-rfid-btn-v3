@@ -22,6 +22,8 @@
 #include <ESP8266mDNS.h>                                                                            //Libreria que sirver de servidor DNS para cuando se levanta en modo de OTA.
 //PublishSubscribe MQTT
 #include <PubSubClient.h>                                                                           //https://github.com/knolleary/pubsubclient/releases/tag/v2.3
+//Flatbox publish Service
+#include <FLatbox_Publish.h>
 
 //**********************************************************************************FIN DE DEFINICION DE LIBRERIAS EXTERNAS
 //Estructura de infromacion de ambiente de configuracion
@@ -66,6 +68,11 @@ unsigned long tono_largo = 1000;                                                
 BlinkRGB Azul (D6);                                                                                 //definicion del puerto fisico en el board para el led de color Azul
 BlinkRGB Verde (D7);                                                                                //definicion del puerto fisico en el board para el led de color Verde
 BlinkRGB Rojo (D8);                                                                                 //definicion del puerto fisico en el board para el led de color Rojo
+//--------------------------------------------------------------------------------------------------//definicion de Topicos de acuerdo a publicacion
+ESP8266_ChipID (NodeID);
+Publish_Topic Boton_Data_Topic ("iot-2/evt/status/fmt/json");
+Publish_Topic Tarjeta_Data_Topic("");
+Publish_Topic 
 //--------------------------------------------------------------------------------------------------definicion de pines de Boton Touch
 TouchPadButton T_button(D0);                                                                        //definicion del puerto fisico en el board para el boton capacitivo
 int pressed_count = 0;                                                                              //definicion de variable que almacena las veces que ha sido presionado el boton
@@ -92,9 +99,12 @@ char charBuff[DataLenght];
 boolean readedTag = false;
 unsigned int count = 0;
 String msg = "";
+//--------------------------------------------------------------------------------------------------//variables globales de eventos de lectura de tarjetas
+String Identificador_ID_Evento_Tarjeta;
+int Numero_ID_Eventos_Tarjeta;
 //--------------------------------------------------------------------------------------------------//variables Globales de lectura de eventos de boton
-String IDE_ventoB;
-int IdEventoB = 0;
+String identificador_ID_Evento_Boton;
+int Numero_ID_Evento_Boton = 0;
 //--------------------------------------------------------------------------------------------------//variables Globales para reinicio de hardware cada 24 horas (pendiente de cambio por time EPOCH)
 unsigned long Last_Normal_Reset_Millis;                                                             //Variable para llevar conteo del tiempo desde la ultima publicacion
 unsigned long Last_Update_Millis;                                                                   //Variable para llevar conteo del tiempo desde la ultima publicacion
@@ -119,6 +129,8 @@ int fsm_state;
 #define STATE_TRANSMIT_BOTON_DATA     1
 #define STATE_TRANSMIT_CARD_DATA      2
 #define STATE_UPDATE                  3
+#define STATE_TRANSMIT_ALARM_UPDATE   4
+#define STATE_TRANSMIT_DEVICE_UPDATE  5
 #define STATE_UPDATE_TIME             6
 #define STATE_RDY_TO_UPDATE_OTA       7
 
@@ -617,6 +629,13 @@ void CheckTime(){ //digital clock display of the time
   Serial.println(F("Time not Sync, Syncronizing time"));
   NTP_ready();
 }
+//-----------------------------------------------------------------------------------Limpiando el Buffer donde se almacena los tarjetas
+void clearBufferArray() {             // function to clear buffer array
+  inputString = "";
+  for (unsigned int i = 0; i < count; i++) {
+    tagID[i] = 0; // clear all index of array with command NULL
+  }
+}
 //---------------------------------------------------------------------------------------------------Leer la tarjeta que se presenta
 void readTag() {
   if (RFIDReader.available()) {
@@ -651,10 +670,10 @@ void readTag() {
 }
 //---------------------------------------------------------------------------------------------- fucnion de lectura de activiad del boton
 void readBtn() {
-  if (T_button.check == true){
+  if (T_button.check() == true){
     Serial.println("Pressed");
-    IdEventoB ++;
-    IDE_ventoB = String (NodeID + IdEventoB);
+    Numero_ID_Evento_Boton ++;
+    identificador_ID_Evento_Boton = String (NodeID + Numero_ID_Evento_Boton);
     Azul.Flash(flash_corto);
     alarm.Beep(tono_corto);
     fsm_state = STATE_TRANSMIT_BOTON_DATA; //PUTS FSM MACHINE ON TRANSMIT DATA MODE
@@ -719,7 +738,89 @@ void checkalarms () {
   }
   BeepSignalWarning = 0;
 }
-  
+
+//--------------------------------------------------------------------------Funcion de publicar los datos de estado si ha pasado el tiempo establecido entonces*!!------------------------------------------------------------------------------
+void updateDeviceInfo() {
+  msg = ("on");
+  WifiSignal = WiFi.RSSI();
+  if (WiFi.RSSI() < -75) {
+    msg = ("LOWiFi");
+    Rojo.Flash(flash_medio);
+    alarm.Beep(tono_medio);
+    Serial.print(WiFi.SSID());
+    Serial.print(" ");
+    Serial.println(WiFi.RSSI());
+    fsm_state = STATE_TRANSMIT_ALARM_UPDATE; //publishRF_ID_Manejo(NodeID, msg, VBat, WifiSignal, published, failed, ISO8601, Smacaddrs, Sipaddrs);        //publishRF_ID_Manejo (String IDModulo,String MSG,float vValue, int fail,String Tstamp)
+    return;
+  }
+}
+
+//---------------------------------------------------------------------------funcion de enviode Datos Boton RF_Boton.-----------------------
+void publishRF_Boton(String IDModulo, String BEventID, String Tstamp) {
+  StaticJsonBuffer<500> jsonBuffer;
+  JsonObject& root = jsonBuffer.createObject();
+  JsonObject& d = root.createNestedObject("d");
+  JsonObject& botondata = d.createNestedObject("botondata");
+  botondata["ChipID"] = IDModulo;
+  botondata["IDEventoBoton"] = BEventID;
+  botondata["Tstamp"] = Tstamp;
+  char MqttBotondata[500];
+  root.printTo(MqttBotondata, sizeof(MqttBotondata));
+  Serial.println(F("publishing device publishTopic metadata:"));
+  Serial.println(MqttBotondata);
+  sent ++;
+  if (client.publish(publishTopic, MqttBotondata)) {
+    Serial.println(F("enviado data de boton: OK"));
+    Verde.Flash(flash_corto);
+    alarm.Beep(tono_corto);
+    published ++;
+    failed = 0;
+  } else {
+    Serial.println(F("enviado data de boton: FAILED"));
+    Rojo.Flash(flash_corto);
+    failed ++;
+  }
+  Blanco.COff();
+}
+//-------- funcion datos Lectura Tag RF_ID_LECTURA. Publish the data to MQTT server, the payload should not be bigger than 45 characters name field and data field counts. --------//
+
+boolean publishRF_ID_Lectura(String IDModulo, String Tstamp, String tagread) {
+  if (OldTagRead != tagread) {
+    OldTagRead = tagread;
+    Numero_ID_Eventos_Tarjeta ++;
+    String Identificador_ID_Evento_Tarjeta = String (NodeID + Numero_ID_Eventos_Tarjeta);
+    StaticJsonBuffer<250> jsonBuffer;
+    JsonObject& root = jsonBuffer.createObject();
+    JsonObject& d = root.createNestedObject("d");
+    JsonObject& tagdata = d.createNestedObject("tagdata");
+    tagdata["ChipID"] = IDModulo;
+    tagdata["IDeventoTag"] = Identificador_ID_Evento_Tarjeta;
+    tagdata["Tstamp"] = Tstamp;
+    tagdata["Tag"] = tagread;
+    char MqttTagdata[250];
+    root.printTo(MqttTagdata, sizeof(MqttTagdata));
+    Serial.println(F("publishing Tag data to publishTopic:"));
+    Serial.println(MqttTagdata);
+    sent ++;
+    if (client.publish(publishTopic, MqttTagdata)) {
+      Serial.println(F("enviado data de RFID: OK"));
+      Verde.Flash(flash_corto);
+      alarm.Beep(tono_corto);
+      published ++;
+      inputString = "";
+      failed = 0;
+    } else {
+      Serial.println(F("enviado data de RFID: FAILED"));
+      Rojo.Flash(flash_corto);
+      failed ++;
+      OldTagRead = "1";
+      inputString = "";
+    }
+  } else {
+    Serial.println("Este es una lectura consecutiva");
+  }
+}
+
 //**************************************************************************************************INICIO DE FUNCIONES DE LOOP
 //--------------------------------------------------------------------------------------------------Funcion de bucle infinito (Loop) este codigo se ejecuta repetitivamente
 void loop() {
@@ -762,9 +863,70 @@ void loop() {
       yield();
           
     break;
+    
+    case STATE_TRANSMIT_BOTON_DATA: //Si se presiono el boton
+      //Check connection
+      //Send the data
+      Serial.println(F("BOTON DATA SENT"));
+      CheckTime();
+      publishRF_Boton(NodeID, identificador_ID_Evento_Boton, ISO8601);  // publishRF_Boton(String IDModulo, String EventID, String Tstamp)
+      fsm_state = STATE_IDLE;
+    break;
+    
+    case STATE_TRANSMIT_CARD_DATA:
+      //Build the Json
+      //check connection
+      //Send the card data
+      Serial.println(F("CARD DATA SENT"));
+      CheckTime();
+      publishRF_ID_Lectura(NodeID, ISO8601, inputString);
+      clearBufferArray();
+      fsm_state = STATE_IDLE;
+    break;
+
+    case STATE_UPDATE:
+      Serial.println(F("STATE_UPDATE"));
+      updateDeviceInfo();
+      fsm_state = STATE_TRANSMIT_DEVICE_UPDATE;
+    break;
+
+    case STATE_TRANSMIT_DEVICE_UPDATE:
+      Serial.println(F("STATE_TRANSMIT_DEVICE_UPDATE"));
+      //verificar que el cliente de Conexion al servicio se encuentre conectado
+      if (!client.connected()) {
+        MQTTreconnect();
+      }
+      //verificar la hora
+      CheckTime();
+      publishRF_ID_Manejo(NodeID, msg, VBat, WifiSignal, published, failed, ISO8601, Smacaddrs, Sipaddrs);
+      fsm_state = STATE_IDLE;
+    break;
+
+    case STATE_TRANSMIT_ALARM_UPDATE:
+      Serial.println(F("STATE_TRANSMIT_ALARM_UPDATE"));
+      //verificar que el cliente de Conexion al servicio se encuentre conectado
+      if (!client.connected()) {
+        MQTTreconnect();
+      }
+      // Verificar la hora
+      CheckTime();
+      publishRF_ID_Manejo(NodeID, msg, VBat, WifiSignal, published, failed, ISO8601, Smacaddrs, Sipaddrs);
+    break;
+
+    case STATE_UPDATE_TIME:
+      Serial.println(F("NTP_CLIENT"));
+      timeClient.update();
+      while (NTP_response == false) {
+        setSyncProvider(NTP_ready);                                                          //iniciamos la mensajeria de UDP para consultar la hora en el servicio de NTP remoto (el servidor se configura en
+        delay(Universal_1_sec_Interval);
+      }                                                    //Cuando fue actualizada la hora del reloj
+      NTP_response = false;
+      fsm_state = STATE_IDLE;
+    break;
+
     case STATE_RDY_TO_UPDATE_OTA:
       ArduinoOTA.handle();
-      break;
+    break;
   }
   if (fsm_state != STATE_RDY_TO_UPDATE_OTA) {
     yield();
