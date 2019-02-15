@@ -653,22 +653,23 @@ void readTag() {
     Serial.println(inputString);
     Verde.Flash(flash_corto);
     alarm.Beep(tono_corto);
-    fsm_state = STATE_TRANSMIT_CARD_DATA;
     count = 0;
     readedTag = !readedTag;
+    fsm_state = STATE_TRANSMIT_CARD_DATA;
   }
   return;
 }
 //---------------------------------------------------------------------------------------------- fucnion de lectura de activiad del boton
 void readBtn() {
   if (T_button.check() == true){
-    Serial.println("Pressed");
+    Serial.println(F("Pressed"));
     Numero_ID_Evento_Boton ++;
-    identificador_ID_Evento_Boton = String (NodeID + Numero_ID_Evento_Boton);
+    identificador_ID_Evento_Boton = String (NodeID + "-" + Numero_ID_Evento_Boton);
     Azul.Flash(flash_corto);
     alarm.Beep(tono_corto);
     fsm_state = STATE_TRANSMIT_BOTON_DATA; //PUTS FSM MACHINE ON TRANSMIT DATA MODE
   }
+  return;
 }
 
 //-------- Data de Manejo RF_ID_Manejo. Publish the data to MQTT server, the payload should not be bigger than 45 characters name field and data field counts. --------//
@@ -749,7 +750,7 @@ boolean publishRF_ID_Lectura() {
   if (OldTagRead != inputString) {
     OldTagRead = inputString;
     Numero_ID_Eventos_Tarjeta ++;
-    String Identificador_ID_Evento_Tarjeta = String (NodeID + Numero_ID_Eventos_Tarjeta);
+    String Identificador_ID_Evento_Tarjeta = String (NodeID + "-" + Numero_ID_Eventos_Tarjeta);
     sent ++;
     if (client.publish(publishTopic, Tarjeta_Data_Json.Evento_Tarjeta(Identificador_ID_Evento_Tarjeta,ISO8601,inputString))) {
       Serial.println(F("enviado data de RFID: OK"));
