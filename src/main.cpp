@@ -638,32 +638,24 @@ void clearBufferArray() {             // function to clear buffer array
 //---------------------------------------------------------------------------------------------------Leer la tarjeta que se presenta
 void readTag() {
   if (RFIDReader.available()) {
-    if (RFIDReader.available() == 0x02) {                                                           //if data header is present.
-      while (RFIDReader.available() > 0) {                                                          // If data available from reader
-        incomingdata = RFIDReader.read();
-        /*Serial.print(count);
-           Serial.print(F(":HEX:"));
-           Serial.print(incomingdata,HEX);
-           Serial.print(F(":DEC:"));
-           Serial.print(incomingdata,DEC);
-           Serial.println(F(""));*/
-        tagID[count] = incomingdata;
-        if (count > 3 && count < 8) {
-          inputString += incomingdata;
-        }
-        delay(10);
-        if (count == 12) break;
-        count++ ;
+    while (RFIDReader.available() > 0) {
+      // If data available from reader
+      incomingdata = RFIDReader.read();
+      tagID[count] = incomingdata;
+      if (count > 3 && count < 8) {
+        inputString += incomingdata;
       }
-      Serial.print(F("RFID CARD ID IS: "));
-      Serial.println(inputString);
-      Verde.Flash(flash_corto);
-      alarm.Beep(tono_corto);
-      fsm_state = STATE_TRANSMIT_CARD_DATA;
-      //inputString = "";
-      count = 0;
-      readedTag = !readedTag;
+      delay(10);
+      if (count == 12) break;
+      count++ ;
     }
+    Serial.print(F("RFID CARD ID IS: "));
+    Serial.println(inputString);
+    Verde.Flash(flash_corto);
+    alarm.Beep(tono_corto);
+    fsm_state = STATE_TRANSMIT_CARD_DATA;
+    count = 0;
+    readedTag = !readedTag;
   }
   return;
 }
@@ -680,27 +672,9 @@ void readBtn() {
 }
 
 //-------- Data de Manejo RF_ID_Manejo. Publish the data to MQTT server, the payload should not be bigger than 45 characters name field and data field counts. --------//
-void publishRF_ID_Manejo (String IDModulo, String MSG, float vValue, int RSSIV, int env, int fail, String Tstamp, String SMacAd, String SIpAd) {
-  StaticJsonBuffer<300> jsonBuffer;
-  JsonObject& root = jsonBuffer.createObject();
-  JsonObject& d = root.createNestedObject("d");
-  JsonObject& Ddata = d.createNestedObject("Ddata");
-  Ddata["ChipID"] = IDModulo;
-  Ddata["Msg"] = MSG;
-  Ddata["batt"] = vValue;
-  Ddata["RSSI"] = RSSIV;
-  Ddata["publicados"] = env;
-  Ddata["enviados"] = sent;
-  Ddata["fallidos"] = fail;
-  Ddata["Tstamp"] = Tstamp;
-  Ddata["Mac"] = SMacAd;
-  Ddata["Ip"] = SIpAd;
-  char MqttDevicedata[300];
-  root.printTo(MqttDevicedata, sizeof(MqttDevicedata));
-  Serial.println(F("publishing device data to manageTopic:"));
-  Serial.println(MqttDevicedata);
+void publishRF_ID_Manejo () {
   sent++;
-  if (client.publish(manageTopic, MqttDevicedata)) {
+  if (client.publish(manageTopic, Manejo_Data_Json.Administracion_Dispositivo(msg,VBat,WifiSignal,published,failed,ISO8601,Smacaddrs,Sipaddrs))) {
     Serial.println(F("enviado data de dispositivo:OK"));
     published ++;
     failed = 0;
@@ -718,7 +692,7 @@ void NormalReset() {
     if (hora > 24) {
       msg = ("24h Normal Reset");
       VBat = 4.2; //Bateria();
-      publishRF_ID_Manejo(NodeID, msg, VBat, WifiSignal, published, failed, ISO8601, Smacaddrs, Sipaddrs);        //publishRF_ID_Manejo (String IDModulo,String MSG,float vValue, int fail,String Tstamp)
+      publishRF_ID_Manejo();        //publishRF_ID_Manejo (String IDModulo,String MSG,float vValue, int fail,String Tstamp)
       void disconnect ();
       hora = 0;
       ESP.restart();
@@ -755,53 +729,29 @@ void updateDeviceInfo() {
 }
 
 //---------------------------------------------------------------------------funcion de enviode Datos Boton RF_Boton.-----------------------
-void publishRF_Boton(String IDModulo, String BEventID, String Tstamp) {
-  StaticJsonBuffer<500> jsonBuffer;
-  JsonObject& root = jsonBuffer.createObject();
-  JsonObject& d = root.createNestedObject("d");
-  JsonObject& botondata = d.createNestedObject("botondata");
-  botondata["ChipID"] = IDModulo;
-  botondata["IDEventoBoton"] = BEventID;
-  botondata["Tstamp"] = Tstamp;
-  char MqttBotondata[500];
-  root.printTo(MqttBotondata, sizeof(MqttBotondata));
-  Serial.println(F("publishing device publishTopic metadata:"));
-  Serial.println(MqttBotondata);
-  sent ++;
-  if (client.publish(publishTopic, MqttBotondata)) {
+void publish_Boton_Data(){
+  if (client.publish(publishTopic, Boton_Data_Json.Evento_Boton(ISO8601, identificador_ID_Evento_Boton))) {
     Serial.println(F("enviado data de boton: OK"));
     Verde.Flash(flash_corto);
     alarm.Beep(tono_corto);
     published ++;
     failed = 0;
-  } else {
-    Serial.println(F("enviado data de boton: FAILED"));
-    Rojo.Flash(flash_corto);
-    failed ++;
-  }
-  Blanco.COff();
+    } else {
+      Serial.println(F("enviado data de boton: FAILED"));
+      Rojo.Flash(flash_corto);
+      failed ++;
+    }
+    Blanco.COff();
 }
 //-------- funcion datos Lectura Tag RF_ID_LECTURA. Publish the data to MQTT server, the payload should not be bigger than 45 characters name field and data field counts. --------//
 
-boolean publishRF_ID_Lectura(String IDModulo, String Tstamp, String tagread) {
-  if (OldTagRead != tagread) {
-    OldTagRead = tagread;
+boolean publishRF_ID_Lectura() {
+  if (OldTagRead != inputString) {
+    OldTagRead = inputString;
     Numero_ID_Eventos_Tarjeta ++;
     String Identificador_ID_Evento_Tarjeta = String (NodeID + Numero_ID_Eventos_Tarjeta);
-    StaticJsonBuffer<250> jsonBuffer;
-    JsonObject& root = jsonBuffer.createObject();
-    JsonObject& d = root.createNestedObject("d");
-    JsonObject& tagdata = d.createNestedObject("tagdata");
-    tagdata["ChipID"] = IDModulo;
-    tagdata["IDeventoTag"] = Identificador_ID_Evento_Tarjeta;
-    tagdata["Tstamp"] = Tstamp;
-    tagdata["Tag"] = tagread;
-    char MqttTagdata[250];
-    root.printTo(MqttTagdata, sizeof(MqttTagdata));
-    Serial.println(F("publishing Tag data to publishTopic:"));
-    Serial.println(MqttTagdata);
     sent ++;
-    if (client.publish(publishTopic, MqttTagdata)) {
+    if (client.publish(publishTopic, Tarjeta_Data_Json.Evento_Tarjeta(Identificador_ID_Evento_Tarjeta,ISO8601,inputString))) {
       Serial.println(F("enviado data de RFID: OK"));
       Verde.Flash(flash_corto);
       alarm.Beep(tono_corto);
@@ -871,28 +821,14 @@ void loop() {
       //Send the data
       Serial.println(F("BOTON DATA SENT"));
       CheckTime();
-      if (client.publish(publishTopic, Boton_Data_Json.Evento_Boton(ISO8601, identificador_ID_Evento_Boton))) {
-        Serial.println(F("enviado data de boton: OK"));
-        Verde.Flash(flash_corto);
-        alarm.Beep(tono_corto);
-        published ++;
-        failed = 0;
-      } else {
-        Serial.println(F("enviado data de boton: FAILED"));
-        Rojo.Flash(flash_corto);
-        failed ++;
-      }
-      Blanco.COff();
+      publish_Boton_Data();
       fsm_state = STATE_IDLE;
     break;
     
     case STATE_TRANSMIT_CARD_DATA:
-      //Build the Json
-      //check connection
-      //Send the card data
       Serial.println(F("CARD DATA SENT"));
       CheckTime();
-      publishRF_ID_Lectura(NodeID, ISO8601, inputString);
+      publishRF_ID_Lectura();
       clearBufferArray();
       fsm_state = STATE_IDLE;
     break;
@@ -911,7 +847,7 @@ void loop() {
       }
       //verificar la hora
       CheckTime();
-      publishRF_ID_Manejo(NodeID, msg, VBat, WifiSignal, published, failed, ISO8601, Smacaddrs, Sipaddrs);
+      publishRF_ID_Manejo();
       fsm_state = STATE_IDLE;
     break;
 
@@ -923,7 +859,7 @@ void loop() {
       }
       // Verificar la hora
       CheckTime();
-      publishRF_ID_Manejo(NodeID, msg, VBat, WifiSignal, published, failed, ISO8601, Smacaddrs, Sipaddrs);
+      publishRF_ID_Manejo();
     break;
 
     case STATE_UPDATE_TIME:
