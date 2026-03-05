@@ -96,7 +96,7 @@ boolean readedTag = false;
 unsigned int count = 0;
 char msg[20] = "";
 //--------------------------------------------------------------------------------------------------//variables globales de eventos de lectura de tarjetas
-int Numero_ID_Eventos_Tarjeta;
+int Numero_ID_Eventos_Tarjeta = 0;
 //--------------------------------------------------------------------------------------------------//variables Globales de lectura de eventos de boton
 char identificador_ID_Evento_Boton[32];
 int Numero_ID_Evento_Boton = 0;
@@ -143,16 +143,18 @@ time_t NTP_ready(){
   uint32_t beginWait = millis();                                                                    //Variable para almacenar el momento en el que se empieza la espera de respuesta del servidor de hora de internet
   while (millis() - beginWait < 1500 ) {                                                            //Funcion en la que se define un periodo maximo de espera para la sincornizacion de hora de intarnet
 
-    Serial.println(".");                                                                            //Mensaje Serial para verificacion de la lectura de tiempo UNIX del servicio de hora de internet
-    delay(Universal_1_sec_Interval);
+    Serial.print(".");                                                                              //Mensaje Serial para verificacion de la lectura de tiempo UNIX del servicio de hora de internet
+    delay(100);
     unsigned long EpochTime = pTimeClient->getRawTime();                                            //Alamcenamiento de la hora UNIX de forma local
 
     if( EpochTime >= 3610){                                                                         //condicional comparativo para confirmar Si la hora contiene un formato mas grande  cualquier cosa random
+      Serial.println();
       Serial.println(F("Receive NTP Response"));                                                    //Mensaje Serial para la verificacion de ejecucion del la condicional compartiva
       NTP_response = true;                                                                          //Actualizacion de la bandera de ejecucion de syncronizacion con hora de internet
       return EpochTime + (timeZone * SECS_PER_HOUR);                                                //Calculo de la hora tomando en cuenta la zona horaria 
     }
   }
+  Serial.println();
   Serial.println(F("No NTP Response :-("));                                                         //Mensaje Serial de control en caso de falla, que el tiempo transcurrido para respuesta desde el servicio de hora de internet sea mayor al de tolerancia de respuesta
   NTP_response = false;                                                                             //Actulizacion de bandera de lectura exita de Servicio de hora de internet a falso
   return 0;                                                                                         //Salida del programa sin retorno de la hora
@@ -447,7 +449,7 @@ void initManagedDevice() {
   deviceInfo["MQTT_server"] = btnconfig.MQTT_Server;
   deviceInfo["MacAddress"] = Smacaddrs;
   deviceInfo["IPAddress"]= Sipaddrs;
-  char buff[500];
+  static char buff[500];
   serializeJson(doc, buff, sizeof(buff));
   Serial.println(F("publishing device manageTopic metadata:"));
   Serial.println(buff);
@@ -561,7 +563,7 @@ void setup() {
     Serial.println(btnconfig.MQTT_Server);
     Serial.print(F("            Puerto del Servidor de MQTT: "));
     Serial.println(atoi(btnconfig.MQTT_Port));
-    Serial.print(F("            Servidor de MQTT: "));
+    Serial.print(F("            Usuario de MQTT: "));
     Serial.println(btnconfig.MQTT_User);
     Serial.print(F("            Client ID: "));
     Serial.println(clientId);
@@ -579,10 +581,11 @@ void setup() {
 //****************************************************************************Inicio de funciones ejecutadas en el loop
 //----------------------------------------------------------------------------funcion que procesa como desplegar y transmitir la hora de acuerdo al formato del ISO8601
 void CheckTime(){ //digital clock display of the time
-  time_t prevDisplay = 0; 
+  static time_t prevDisplay = 0;
   if (timeStatus() != timeNotSet) {
-    if (now() != prevDisplay) {                                             //update the display only if time has changed
-      prevDisplay = now();
+    time_t t = now();
+    if (t != prevDisplay) {                                                 //update the display only if time has changed
+      prevDisplay = t;
       snprintf(ISO8601, sizeof(ISO8601), "%04d-%02d-%02dT%02d:%02d:%02d", year(), month(), day(), hour(), minute(), second());
     }
   }
@@ -594,13 +597,14 @@ void CheckTime(){ //digital clock display of the time
 //-----------------------------------------------------------------------------------Limpiando el Buffer donde se almacena los tarjetas
 void clearBufferArray() {             // function to clear buffer array
   inputString = "";
-  for (unsigned int i = 0; i < count; i++) {
+  for (unsigned int i = 0; i < DataLenght; i++) {
     tagID[i] = 0; // clear all index of array with command NULL
   }
 }
 //---------------------------------------------------------------------------------------------------Leer la tarjeta que se presenta
 void readTag() {
   if (RFIDReader.available()) {
+    inputString = "";
     while (RFIDReader.available() > 0) {
       // If data available from reader
       incomingdata = RFIDReader.read();

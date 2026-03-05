@@ -271,6 +271,18 @@ MQTT connection safeguard:
 - After saving new config, device restarts with corrected settings
 - Prints PubSubClient return code (`rc=`) on each failure to aid diagnosis
 
+Bug fixes (round 3):
+
+- **BUG FIX:** `CheckTime()` `prevDisplay` was local (always 0), never actually skipped redundant updates. Made `static` so it persists across calls.
+- **BUG FIX:** `CheckTime()` called `now()` twice per invocation -- second call could tick sysTime forward, causing 1-second timestamp skew. Now calls `now()` once and reuses the value.
+- **BUG FIX:** `readTag()` never cleared `inputString` before accumulating new bytes, causing stale data to concatenate with new card reads after duplicate-guard early returns.
+- **BUG FIX:** `clearBufferArray()` used `count` (already reset to 0) as loop bound, so `tagID[]` array was never actually cleared. Changed to use `DataLenght` constant.
+- **BUG FIX:** `NTP_ready()` had 1500ms timeout loop with 1000ms `delay()` inside -- only 1 iteration ever ran. Reduced delay to 100ms, allowing ~14 polling iterations within the timeout.
+- Fixed serial label "Servidor de MQTT" that actually printed MQTT username -- changed to "Usuario de MQTT"
+- Initialized `Numero_ID_Eventos_Tarjeta = 0` explicitly (was relying on implicit BSS zeroing)
+- Changed MQTT topic buffers in Settings.h from fixed sizes to compiler-sized `char[]` (eliminates over/under-sizing risk)
+- Made `initManagedDevice()` 500-byte serialization buffer `static` to avoid stack pressure on ESP8266 (4KB stack)
+
 Code quality:
 
 - Added include guard to Settings.h

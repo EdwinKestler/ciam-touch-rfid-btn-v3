@@ -29,10 +29,10 @@ Open serial monitor at **115200 baud** before starting each test.
 | 2 | Wait 2s (don't press button) | `estado del Boton: 0` | Green OFF, Red ON | -- | -- |
 | 3 | Wait 2s (don't press button) | -- | Red OFF | -- | -- |
 | 4 | WiFi auto-connects | `Wifi conectado, Direccion de IP Asignado: x.x.x.x` | -- | -- | -- |
-| 5 | NTP sync | `servidor de NTP: <server>` | -- | -- | -- |
+| 5 | NTP sync | `servidor de NTP: <server>`, `.....` (polling dots), `Receive NTP Response` | -- | -- | -- |
 | 6 | MQTT connect (up to 4 attempts) | `Conectando al servidor MQTT: <server>`, `MQTT attempt #1`, `MQTT connected` then `Mqtt Connection Done!, sending Device Data` | -- | -- | -- |
 | 7 | Subscribe topics | `se ha subscrito al Topico de respuestas` / `...Reincio Remoto` / `...Actulizaciones Remotas` | -- | -- | -- |
-| 8 | Device info summary | `CHIPID:`, `HARDWARE:`, `FIRMWARE:`, `Servidor de NTP:`, `Servidor de MQTT:`, `Puerto:`, `Client ID:` | White OFF | -- | IDLE (0) |
+| 8 | Device info summary | `CHIPID:`, `HARDWARE:`, `FIRMWARE:`, `Servidor de NTP:`, `Servidor de MQTT:`, `Puerto:`, `Usuario de MQTT:`, `Client ID:` | White OFF | -- | IDLE (0) |
 
 **PASS criteria:** All serial messages appear in order. Device enters IDLE. No restart loops.
 
