@@ -283,6 +283,14 @@ Bug fixes (round 3):
 - Changed MQTT topic buffers in Settings.h from fixed sizes to compiler-sized `char[]` (eliminates over/under-sizing risk)
 - Made `initManagedDevice()` 500-byte serialization buffer `static` to avoid stack pressure on ESP8266 (4KB stack)
 
+Pre-release blocker fixes:
+
+- **BLOCKER FIX:** `charBuf[30]` in `mqttConnect()` and `MQTTreconnect()` was too small for MQTT client ID (up to 38 chars). Increased to `charBuf[50]` to prevent truncation/buffer overflow.
+- **BLOCKER FIX:** Removed hardcoded `#define TOKEN` from Settings.h (dead code, credentials stored in source)
+- **BLOCKER FIX:** Added `ArduinoOTA.setPassword(password_OTA)` in `BOOT_TO_OTA()` -- OTA was previously open with no authentication
+- **HIGH FIX:** NTP startup `while` loop could hang forever if NTP server was unreachable. Capped at 5 retries with serial progress output, then continues without time sync.
+- **HIGH FIX:** `Flatbox_Publish` `serializeJson()` calls had no overflow detection -- if JSON exceeded 300-byte buffers, payload would be silently truncated and MQTT broker would receive invalid JSON. Added return-value checks with serial warnings on all 3 serialization methods.
+
 Code quality:
 
 - Added include guard to Settings.h

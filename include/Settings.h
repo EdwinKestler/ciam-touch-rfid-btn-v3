@@ -12,7 +12,6 @@ const char* password_OTA = "FLATB0X_OTA";
 #define ORG "FLATBOX"
 #define DEVICE_TYPE "AC_WIFI_RFID_BTN"
 #define DEVICE_ID "CIAM"
-#define TOKEN "hY5OOupZk*U1yMl1G8"
 //--------------------------------------------------------------------------------------------------// Parametros de configuracion de Hora
 const int timeZone = -6;                                                                            // Eastern central Time (USA)
 

@@ -27,7 +27,10 @@ char * flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_
     Ddata["Tstamp"] = Time_Stamp;
     Ddata["Mac"] = Direccion_Mac;
     Ddata["Ip"] = Direccion_IP;
-    serializeJson(doc, _Manejo_Data, sizeof(_Manejo_Data));
+    size_t n = serializeJson(doc, _Manejo_Data, sizeof(_Manejo_Data));
+    if (n >= sizeof(_Manejo_Data)) {
+      Serial.println(F("WARNING: Manejo JSON truncated!"));
+    }
     Serial.println(F("publishing device data to manageTopic:"));
     Serial.println(_Manejo_Data);
     return _Manejo_Data;
@@ -41,7 +44,10 @@ char * flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_
     botondata["ChipID"] = _UID_Board;
     botondata["IDEventoBoton"] = ID_Evento_Boton;
     botondata["Tstamp"] = Time_Stamp;
-    serializeJson(doc, _Boton_Data, sizeof(_Boton_Data));
+    size_t n = serializeJson(doc, _Boton_Data, sizeof(_Boton_Data));
+    if (n >= sizeof(_Boton_Data)) {
+      Serial.println(F("WARNING: Boton JSON truncated!"));
+    }
     Serial.println(F("publishing device publishTopic metadata:"));
     Serial.println(_Boton_Data);
     return _Boton_Data;
@@ -56,7 +62,10 @@ char * flatbox::Evento_Tarjeta(String ID_Evento_Tarjeta, String Time_Stamp, Stri
     tagdata["IDeventoTag"] = ID_Evento_Tarjeta;
     tagdata["Tstamp"] = Time_Stamp;
     tagdata["Tag"] = ID_Tarjeta_RFID;
-    serializeJson(doc, _Tarjeta_Data, sizeof(_Tarjeta_Data));
+    size_t n = serializeJson(doc, _Tarjeta_Data, sizeof(_Tarjeta_Data));
+    if (n >= sizeof(_Tarjeta_Data)) {
+      Serial.println(F("WARNING: Tarjeta JSON truncated!"));
+    }
     Serial.println(F("publishing Tag data to publishTopic:"));
     Serial.println(_Tarjeta_Data);
     return _Tarjeta_Data;

@@ -301,6 +301,7 @@ void BOOT_TO_OTA() {
   Serial.println("Starting OTA");
   WiFi.mode(WIFI_AP);
   WiFi.softAP(ssid_OTA, password_OTA);
+  ArduinoOTA.setPassword(password_OTA);
   ArduinoOTA.begin();
   Serial.println("Ready");
   Azul.Flash(flash_medio);
@@ -366,9 +367,9 @@ void mqttConnect() {
   if (!client.connected()) {
     Serial.print(F("Conectando al servidor MQTT: "));
     Serial.println(btnconfig.MQTT_Server);
-    char charBuf[30];
+    char charBuf[50];
     String CID (clientId + NodeID);
-    CID.toCharArray(charBuf, 30);
+    CID.toCharArray(charBuf, 50);
     for (int retry = 0; retry < 4; retry++) {
       Serial.print(F("MQTT attempt #"));
       Serial.println(retry + 1);
@@ -393,9 +394,9 @@ void MQTTreconnect() {
     Serial.print(F("Attempting MQTT connection..."));
     Blanco.CFlash(flash_corto);
     alarm.Beep(tono_corto);
-    char charBuf[30];
+    char charBuf[50];
     String CID (clientId + NodeID);
-    CID.toCharArray(charBuf, 30);
+    CID.toCharArray(charBuf, 50);
     if (client.connect(charBuf, btnconfig.MQTT_User, btnconfig.MQTT_Password)) {
       Serial.println(F("connected"));
       return;
@@ -533,9 +534,14 @@ void setup() {
     pTimeClient->begin();
 
     if(WiFi.status() == WL_CONNECTED){
-      while (NTP_response == false){
+      for (int ntp_retry = 0; ntp_retry < 5 && !NTP_response; ntp_retry++) {
+        Serial.print(F("NTP sync attempt #"));
+        Serial.println(ntp_retry + 1);
         setSyncProvider(NTP_ready);
         delay(5*Universal_1_sec_Interval);
+      }
+      if (!NTP_response) {
+        Serial.println(F("NTP sync failed after 5 attempts, continuing without time"));
       }
     }else{
       Serial.println(F("Wifi nor connected no NTP possible"));

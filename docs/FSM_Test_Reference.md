@@ -29,7 +29,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | 2 | Wait 2s (don't press button) | `estado del Boton: 0` | Green OFF, Red ON | -- | -- |
 | 3 | Wait 2s (don't press button) | -- | Red OFF | -- | -- |
 | 4 | WiFi auto-connects | `Wifi conectado, Direccion de IP Asignado: x.x.x.x` | -- | -- | -- |
-| 5 | NTP sync | `servidor de NTP: <server>`, `.....` (polling dots), `Receive NTP Response` | -- | -- | -- |
+| 5 | NTP sync (up to 5 attempts) | `servidor de NTP: <server>`, `NTP sync attempt #1`, `.....` (polling dots), `Receive NTP Response` | -- | -- | -- |
 | 6 | MQTT connect (up to 4 attempts) | `Conectando al servidor MQTT: <server>`, `MQTT attempt #1`, `MQTT connected` then `Mqtt Connection Done!, sending Device Data` | -- | -- | -- |
 | 7 | Subscribe topics | `se ha subscrito al Topico de respuestas` / `...Reincio Remoto` / `...Actulizaciones Remotas` | -- | -- | -- |
 | 8 | Device info summary | `CHIPID:`, `HARDWARE:`, `FIRMWARE:`, `Servidor de NTP:`, `Servidor de MQTT:`, `Puerto:`, `Usuario de MQTT:`, `Client ID:` | White OFF | -- | IDLE (0) |
@@ -92,9 +92,9 @@ Open serial monitor at **115200 baud** before starting each test.
 | 1 | Power on, wait for green LED to turn off | `estado del Boton: 0` | Green ON then OFF | -- | -- |
 | 2 | Hold button when red LED turns on | `Starting OTA` then `Ready` | Blue flash (medium) | Medium, Short, Medium beep pattern | RDY_TO_UPDATE_OTA (7) |
 | 3 | Device creates AP: `RFID_OTA` | -- | -- | -- | Stays in state 7 |
-| 4 | Upload firmware via ArduinoOTA | OTA progress logs | -- | -- | Stays in state 7 |
+| 4 | Upload firmware via ArduinoOTA (password: `FLATB0X_OTA`) | OTA progress logs | -- | -- | Stays in state 7 |
 
-**PASS criteria:** AP `RFID_OTA` appears. OTA upload completes successfully. Device loops in state 7 indefinitely (no IDLE transition).
+**PASS criteria:** AP `RFID_OTA` appears. OTA upload requires password (`FLATB0X_OTA`). Upload without password is rejected. OTA upload with correct password completes successfully. Device loops in state 7 indefinitely (no IDLE transition).
 
 ---
 
@@ -381,7 +381,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | 1 | Normal Startup | Power on (no button) | Serial summary, enters IDLE | [ ] |
 | 1b | MQTT Connect Failure | Broker unreachable at startup | 4 retries, WiFiManager fallback, rc= codes logged | [ ] |
 | 2 | WiFi Config Portal | Button in 1st 2s | WiFiManager AP accessible | [ ] |
-| 3 | OTA Update Mode | Button in 2nd 2s | `RFID_OTA` AP, stays in state 7 | [ ] |
+| 3 | OTA Update Mode | Button in 2nd 2s | `RFID_OTA` AP, OTA password required, stays in state 7 | [ ] |
 | 4 | Card Read (new) | Present new RFID card | Green flash, beep, JSON published | [ ] |
 | 5 | Card Read (duplicate) | Same card within 5s | "Duplicate read, ignoring", NO flash/beep | [ ] |
 | 6 | Card Read (after cooldown) | Same card after > 5s | Accepted as new read | [ ] |
