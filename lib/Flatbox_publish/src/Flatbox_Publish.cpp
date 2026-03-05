@@ -14,10 +14,9 @@ flatbox::flatbox(String UID_Board){
 
 char * flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_Board, int Nivel_RSSI, int Mensajes_enviados, int Mensajes_Fallidos, String Time_Stamp, String Direccion_Mac, String Direccion_IP)
 {
-    StaticJsonBuffer<300> jsonBuffer;
-    JsonObject& root = jsonBuffer.createObject();
-    JsonObject& d = root.createNestedObject("d");
-    JsonObject& Ddata = d.createNestedObject("Ddata");
+    JsonDocument doc;
+    JsonObject d = doc["d"].to<JsonObject>();
+    JsonObject Ddata = d["Ddata"].to<JsonObject>();
     Ddata["ChipID"] = _UID_Board;
     Ddata["Msg"] = Mensaje_Estado;
     Ddata["batt"] = Voltaje_Board;
@@ -28,45 +27,37 @@ char * flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_
     Ddata["Tstamp"] = Time_Stamp;
     Ddata["Mac"] = Direccion_Mac;
     Ddata["Ip"] = Direccion_IP;
-    char MqttDevicedata[300];
-    root.printTo(MqttDevicedata, sizeof(MqttDevicedata));
+    serializeJson(doc, _Manejo_Data, sizeof(_Manejo_Data));
     Serial.println(F("publishing device data to manageTopic:"));
-    Serial.println(MqttDevicedata);
-    strcpy(_Manejo_Data, MqttDevicedata);
+    Serial.println(_Manejo_Data);
     return _Manejo_Data;
 }
 
  char * flatbox::Evento_Boton(String Time_Stamp, String ID_Evento_Boton)
 {
-    StaticJsonBuffer<300> jsonBuffer;
-    JsonObject& root = jsonBuffer.createObject();
-    JsonObject& d = root.createNestedObject("d");
-    JsonObject& botondata = d.createNestedObject("botondata");
+    JsonDocument doc;
+    JsonObject d = doc["d"].to<JsonObject>();
+    JsonObject botondata = d["botondata"].to<JsonObject>();
     botondata["ChipID"] = _UID_Board;
     botondata["IDEventoBoton"] = ID_Evento_Boton;
     botondata["Tstamp"] = Time_Stamp;
-    char MqttBotondata[300];
-    root.printTo(MqttBotondata, sizeof(MqttBotondata));
+    serializeJson(doc, _Boton_Data, sizeof(_Boton_Data));
     Serial.println(F("publishing device publishTopic metadata:"));
-    Serial.println(MqttBotondata);
-    strcpy(_Boton_Data, MqttBotondata);
+    Serial.println(_Boton_Data);
     return _Boton_Data;
 }
 
 char * flatbox::Evento_Tarjeta(String ID_Evento_Tarjeta, String Time_Stamp, String ID_Tarjeta_RFID)
 {
-    StaticJsonBuffer<300> jsonBuffer;
-    JsonObject& root = jsonBuffer.createObject();
-    JsonObject& d = root.createNestedObject("d");
-    JsonObject& tagdata = d.createNestedObject("tagdata");
+    JsonDocument doc;
+    JsonObject d = doc["d"].to<JsonObject>();
+    JsonObject tagdata = d["tagdata"].to<JsonObject>();
     tagdata["ChipID"] = _UID_Board;
     tagdata["IDeventoTag"] = ID_Evento_Tarjeta;
     tagdata["Tstamp"] = Time_Stamp;
     tagdata["Tag"] = ID_Tarjeta_RFID;
-    char MqttTagdata[300];
-    root.printTo(MqttTagdata, sizeof(MqttTagdata));
+    serializeJson(doc, _Tarjeta_Data, sizeof(_Tarjeta_Data));
     Serial.println(F("publishing Tag data to publishTopic:"));
-    Serial.println(MqttTagdata);
-    strcpy(_Tarjeta_Data, MqttTagdata);
+    Serial.println(_Tarjeta_Data);
     return _Tarjeta_Data;
 }

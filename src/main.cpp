@@ -1,5 +1,5 @@
 //File Sistema for Json Configuration File
-#include <FS.h>                                                                                     //Libreria de incio del Sistema de Archivos (File Sistem) para el almacenamiento de variables de entorno
+#include <LittleFS.h>                                                                                //Libreria de Sistema de Archivos (LittleFS) para el almacenamiento de variables de entorno
 #include <Arduino.h>                                                                                //Librerias base de ARDUINO
 //Physical Board Pheripherials
 #include <Settings.h>                                                                               //Libreria que guarda los parametros del ambiente de funcionamiento
@@ -42,7 +42,7 @@ bool OTA_ENABLED = false;
 bool Wifi_On_Demand_ENABLED = false;
 unsigned long Btn_check_Current_millis;
 //--------------------------------------------------------------------------------------------------incializacion del software Serial
-SoftwareSerial RFIDReader(D2, D3, false, 256);                                                      //se inciializa el puerto Serial por Software en los puerstos D2 como TX y D3 como RX 
+SoftwareSerial RFIDReader(D2, D3, false);                                                             //se inciializa el puerto Serial por Software en los puerstos D2 como TX y D3 como RX
 unsigned long RetardoLectura;                                                                       //Variable que almacena el tiempo transcurrido desde la ultima vez que se leyo una tarjeta 
 long LecturaTreshold = 5000;                                                                        //Variable que almacena el tiempo que debe transcurrir en millisegundos para leer otra tarjeta
 //--------------------------------------------------------------------------------------------------Variables Propias del CORE ESP8266 Para la administracion del Modulo
@@ -127,7 +127,6 @@ int fsm_state;
 #define STATE_TRANSMIT_BOTON_DATA     1
 #define STATE_TRANSMIT_CARD_DATA      2
 #define STATE_UPDATE                  3
-#define STATE_TRANSMIT_ALARM_UPDATE   4
 #define STATE_TRANSMIT_DEVICE_UPDATE  5
 #define STATE_UPDATE_TIME             6
 #define STATE_RDY_TO_UPDATE_OTA       7
@@ -163,34 +162,34 @@ time_t NTP_ready(){
 //--------------------------------------------------------------------------------------------------definicion de Funcion que incia y escribe el JSON con los parametros de Configuracion de ambiente de operacion
 void Read_Configuration_JSON(){
   Serial.println(F("Montando el Sistema de Archivos o FS"));                                        //Mensaje Serial de control para verificar que la rutina ha iniciado
-  if (SPIFFS.begin()){                                                                              //Condicional que verifica si se puede iniciar la libreria de Sistema de Archivos ó FS
+  if (LittleFS.begin()){                                                                              //Condicional que verifica si se puede iniciar la libreria de Sistema de Archivos ó FS
     Serial.println(F("Sistema de Archivos montado"));                                               //Mensaje Serial de control para idicar que el sistema ha sido iniciado con exito
-    if(SPIFFS.exists("/config.json")){                                                              //Condicional que verifica si en el sistema de Arachivos se encuentra creado el archivo de configuracion
+    if(LittleFS.exists("/config.json")){                                                              //Condicional que verifica si en el sistema de Arachivos se encuentra creado el archivo de configuracion
       Serial.println(F("Leyendo el Archivo de Configuracion"));                                     //Mensaje Serial de control para idicar que el archivo de configuracionh ha sido encontrado con exito
-      File configFile = SPIFFS.open("/config.json","r");                                            //Se Abre el archivo de configuracion
+      File configFile = LittleFS.open("/config.json","r");                                            //Se Abre el archivo de configuracion
       if(configFile){                                                                               //condiconal que verifica si el archivo de configuracion pudo ser abierto
         Serial.println(F("Archivo de configuracion Abierto"));                                      //Mensaje Serial de control para idicar que el archivo de configuracionh ha sido abierto con exito
         size_t size = configFile.size();                                                            //averiguar cuanto mide el archivo y asinar ese paramtro a una variable
         std::unique_ptr<char[]>buf(new char [size]);                                                //Crear un Buffer para almacenar el contenido del archivo
         configFile.readBytes(buf.get(), size);                                                      //Leer el archivo y copiar el buiffer
 
-        StaticJsonBuffer<512> jsonBuffer;                                                           //Creamos un Buffer estatico Grande para almacenar la informacion del JSON
-        JsonObject &root = jsonBuffer.parseObject(buf.get());                                       //Almacenamos lo que haya en el el buffer del Archivo en el buffer del JSON
-        if (!root.success()){                                                                       //Condicional de lectura del buffer
+        JsonDocument doc;                                                                           //Documento JSON para almacenar la informacion
+        DeserializationError error = deserializeJson(doc, buf.get());                               //Deserializamos el buffer del archivo al documento JSON
+        if (error){                                                                                 //Condicional de lectura del buffer
           Serial.println(F("Fallo en leer el archivo"));                                            //Mensaje Serial de control para idicar que el archivo de configuracionh NO ha sido abierto con exito
           return;
         }
-        root.printTo(Serial);                                                                       //Imprimir el archivo de configuracion leido al puerto Serial para verificacion
+        serializeJson(doc, Serial);                                                                       //Imprimir el archivo de configuracion leido al puerto Serial para verificacion
         Serial.println(F("\nparsed json"));                                                         //Mensje serial para indicar que se empieza el parseo del archivo al Json
         strlcpy(btnconfig.MQTT_Server,                                                              // Copiar a <- destino
-                root["MQTT_Server"] | "adnode.flatbox.io" ,                                                                // desde el valor <- Archivo
+                doc["MQTT_Server"] | "adnode.flatbox.io" ,                                                                 // desde el valor <- Archivo
                 sizeof( btnconfig.MQTT_Server) );                                                   // <- Capacidad del destino
-        strlcpy(btnconfig.MQTT_Port, root["MQTT_Port"] | "1883", sizeof(btnconfig.MQTT_Port));      //Parametro de Configuracion del puerto del servidor de MQTT
-        strlcpy(btnconfig.MQTT_User,root["MQTT_User"] | "demo", sizeof(btnconfig.MQTT_User));       //Parametro de Configuracion del Usuario del Servidor de MQTT
-        strlcpy(btnconfig.MQTT_Password,root["MQTT_Password"] | "demo" , sizeof(btnconfig.MQTT_Password));    //Parametro de Configuracion del Password del Servidor de MQTT
-        strlcpy(btnconfig.NTPClient_SERVER,root["NTPClient_SERVER"] | "time-a-g.nist.gov", 
+        strlcpy(btnconfig.MQTT_Port, doc["MQTT_Port"] | "1883", sizeof(btnconfig.MQTT_Port));       //Parametro de Configuracion del puerto del servidor de MQTT
+        strlcpy(btnconfig.MQTT_User, doc["MQTT_User"] | "demo", sizeof(btnconfig.MQTT_User));       //Parametro de Configuracion del Usuario del Servidor de MQTT
+        strlcpy(btnconfig.MQTT_Password, doc["MQTT_Password"] | "demo" , sizeof(btnconfig.MQTT_Password));   //Parametro de Configuracion del Password del Servidor de MQTT
+        strlcpy(btnconfig.NTPClient_SERVER, doc["NTPClient_SERVER"] | "time-a-g.nist.gov",
                 sizeof(btnconfig.NTPClient_SERVER));                                                //Parametro de Configuracion del Servidor de NTP
-        strlcpy(btnconfig.NTPClient_interval, root["NTPClient_interval"] | "60000", sizeof(btnconfig.NTPClient_interval));                                  //Parametro de Configuracion del Intervalo de actulizacion de hora por medio de consulta al Servicio de NTP
+        strlcpy(btnconfig.NTPClient_interval, doc["NTPClient_interval"] | "60000", sizeof(btnconfig.NTPClient_interval));                                  //Parametro de Configuracion del Intervalo de actulizacion de hora por medio de consulta al Servicio de NTP
       }
       configFile.close();
     }
@@ -198,7 +197,7 @@ void Read_Configuration_JSON(){
     Serial.println(F("Fallo en Abrir el Sistema de Archivos"));                                     //Mensje serial para indicar que Fallo el montar el sistema de manejo de archivos
   }
 }
-//--------------------------------------------------------------------------------------------------//Funcion auxiliar para copiar parametros de WiFiManager a btnconfig y guardar en SPIFFS
+//--------------------------------------------------------------------------------------------------//Funcion auxiliar para copiar parametros de WiFiManager a btnconfig y guardar en LittleFS
 void copyWifiManagerParams(
     WiFiManagerParameter &srv, WiFiManagerParameter &port, WiFiManagerParameter &usr,
     WiFiManagerParameter &pwd, WiFiManagerParameter &ntp_srv, WiFiManagerParameter &ntp_int)
@@ -212,23 +211,22 @@ void copyWifiManagerParams(
 
   if(shouldSaveConfig){
     Serial.println(F("Guardando Cambios de Configuracion"));
-    StaticJsonBuffer<512> jsonBuffer;
-    JsonObject& root = jsonBuffer.createObject();
-    root["MQTT_Server"] = btnconfig.MQTT_Server;
-    root["MQTT_Port"] = btnconfig.MQTT_Port;
-    root["MQTT_User"] = btnconfig.MQTT_User;
-    root["MQTT_Password"] = btnconfig.MQTT_Password;
-    root["NTPClient_SERVER"] = btnconfig.NTPClient_SERVER;
-    root["NTPClient_interval"] = btnconfig.NTPClient_interval;
+    JsonDocument doc;
+    doc["MQTT_Server"] = btnconfig.MQTT_Server;
+    doc["MQTT_Port"] = btnconfig.MQTT_Port;
+    doc["MQTT_User"] = btnconfig.MQTT_User;
+    doc["MQTT_Password"] = btnconfig.MQTT_Password;
+    doc["NTPClient_SERVER"] = btnconfig.NTPClient_SERVER;
+    doc["NTPClient_interval"] = btnconfig.NTPClient_interval;
 
-    File configFile = SPIFFS.open("/config.json", "w");
+    File configFile = LittleFS.open("/config.json", "w");
     if(!configFile){
       Serial.println(F("Fallo al intentar abrir el archivo de configuracion para escritura"));
       return;
     }
 
-    root.printTo(Serial);
-    root.printTo(configFile);
+    serializeJson(doc, Serial);
+    serializeJson(doc, configFile);
     configFile.close();
   }
 }
@@ -314,28 +312,28 @@ void BOOT_TO_OTA() {
 
 //--------------------------------------------------------------------------------------------------//Funcion Remota para manejar Actulizacion de parametros por la via remota (MQTT SERVER)
 void handleUpdate(byte* payload) {                                                                  //La Funcion recibe lo que obtenga Payload de la Funcion Callback que vigila el Topico de subcripcion (Subscribe TOPIC)
-  StaticJsonBuffer<300> jsonBuffer;                                                                 //Se establece un Buffer de 1o suficientemente gande para almacenar los menasajes JSON
-  JsonObject& root = jsonBuffer.parseObject((char*)payload);                                        //Se busca la raiz del mensaje Json convirtiendo los Bytes del Payload a Caracteres en el buffer
-  if (!root.success()) {                                                                            //Si no se encuentra el objeto Raiz del Json
+  JsonDocument doc;                                                                                 //Documento JSON para almacenar los mensajes
+  DeserializationError error = deserializeJson(doc, (char*)payload);                                //Deserializamos el payload al documento JSON
+  if (error) {                                                                                      //Si no se puede deserializar el Json
     Serial.println(F("ERROR en la Letura del JSON Entrante"));                                      //Se imprime un mensaje de Error en la lectura del JSON
     return;                                                                                         //Nos salimos de la funcion
   }                                                                                                 //se cierra el condicional
   Serial.println(F("Update payload:"));                                                             //si se pudo encontrar la raiz del objeto JSON se imprime u mensje
-  root.prettyPrintTo(Serial);                                                                       //y se imprime el mensaje recibido al Serial
+  serializeJsonPretty(doc, Serial);                                                                 //y se imprime el mensaje recibido al Serial
   Serial.println();                                                                                 //dejamos una linea de pormedio para continuar con los mensajes de debugging
 }
 
 //--------------------------------------------------------------------------------------------------//Funcion remota para mandar a dormir el esp despues de enviar un RFID
 void handleResponse (byte* payloadrsp) {
-  StaticJsonBuffer<200> jsonBuffer;                                                                 //Se establece un Buffer de 1o suficientemente gande para almacenar los menasajes JSON
-  JsonObject& root = jsonBuffer.parseObject((char*)payloadrsp);                                     //Se busca la raiz del mensaje Json convirtiendo los Bytes del Payload a Caracteres en el buffer
-  if (!root.success()) {                                                                            //Si no se encuentra el objeto Raiz del Json
+  JsonDocument doc;                                                                                 //Documento JSON para almacenar los mensajes
+  DeserializationError error = deserializeJson(doc, (char*)payloadrsp);                             //Deserializamos el payload al documento JSON
+  if (error) {                                                                                      //Si no se puede deserializar el Json
     Serial.println(F("ERROR en la Letura del JSON Entrante"));                                      //Se imprime un mensaje de Error en la lectura del JSON
     return;                                                                                         //Nos salimos de la funcion
   }                                                                                                 //se cierra el condicional
 
   Serial.println(F("Response payload:"));                                                           //si se pudo encontrar la raiz del objeto JSON se imprime u mensje
-  root.printTo(Serial);                                                                             //y se imprime el mensaje recibido al Serial
+  serializeJson(doc, Serial);                                                                       //y se imprime el mensaje recibido al Serial
   Serial.println();                                                                                 //dejamos una linea de pormedio para continuar con los mensajes de debugging
 }
 //--------------------------------------------------------------------------------------------------//Funcion de vigilancia sobre mensajeria remota desde el servicion de IBM bluemix
@@ -387,9 +385,8 @@ void mqttConnect() {
 }
 //----------------------------------------------------------------------Funcion de REConexion a Servicio de MQTT
 void MQTTreconnect() {
-  int retry = 0;
-  // Loop until we're reconnected
-  while (!client.connected()) {
+  // Attempt up to 3 reconnections per call to avoid long blocking
+  for (int retry = 0; retry < 3 && !client.connected(); retry++) {
     Serial.print(F("Attempting MQTT connection..."));
     Blanco.CFlash(flash_corto);
     alarm.Beep(tono_corto);
@@ -398,22 +395,18 @@ void MQTTreconnect() {
     CID.toCharArray(charBuf, 30);
     if (client.connect(charBuf, btnconfig.MQTT_User, btnconfig.MQTT_Password)) {
       Serial.println(F("connected"));
-    }else {
-      Purpura.CFlash(flash_medio);
-      alarm.Beep(tono_medio);
-      Serial.print(F("failed, rc="));
-      Serial.print(client.state());
-      Serial.print(F(" try again in 3 seconds,"));
-      Serial.print(F(" retry #:"));
-      Serial.println(retry);
-      if (retry > 10) {
-        ESP.restart();
-        retry = 0;
-      }
-      retry++;
-      // Wait 3 seconds before retrying
-      delay(3000);
+      return;
     }
+    Purpura.CFlash(flash_medio);
+    alarm.Beep(tono_medio);
+    Serial.print(F("failed, rc="));
+    Serial.print(client.state());
+    Serial.print(F(" retry #:"));
+    Serial.println(retry);
+    delay(3000);
+  }
+  if (!client.connected()) {
+    Serial.println(F("MQTT reconnect failed after 3 attempts"));
   }
 }
 //--------------------------------------------------------------------------------------------------//Funcion encargada de subscribir el nodo a los servicio de administracion remota y de notificar los para metros configurables al mismo
@@ -439,23 +432,22 @@ void initManagedDevice() {
     Serial.println(F("No se pudo Subscribir al Topico de Actulizacione Remotas"));                  //Si no se logra la subcripcion imprimir un mensaje de error         
   }
   
-  StaticJsonBuffer<500> jsonBuffer;
-  JsonObject& root = jsonBuffer.createObject();
-  JsonObject& d = root.createNestedObject("d");
-  JsonObject& metadata = d.createNestedObject("metadata");
+  JsonDocument doc;
+  JsonObject d = doc["d"].to<JsonObject>();
+  JsonObject metadata = d["metadata"].to<JsonObject>();
   metadata["Universal_Interval"] = Universal_1_sec_Interval;
   metadata["UPDATE_TIME"] = 60*Universal_1_sec_Interval;
   metadata["Norman_Reset_TIME"] = 60*60*Universal_1_sec_Interval;
-  metadata["timeZone"] = timeZone;    
-  JsonObject& supports = d.createNestedObject("supports");
-  supports["deviceActions"] = true;  
-  JsonObject& deviceInfo = d.createNestedObject("deviceInfo");
+  metadata["timeZone"] = timeZone;
+  JsonObject supports = d["supports"].to<JsonObject>();
+  supports["deviceActions"] = true;
+  JsonObject deviceInfo = d["deviceInfo"].to<JsonObject>();
   deviceInfo["NTP_Server"] = btnconfig.NTPClient_SERVER;
   deviceInfo["MQTT_server"] = btnconfig.MQTT_Server;
   deviceInfo["MacAddress"] = Smacaddrs;
-  deviceInfo["IPAddress"]= Sipaddrs;    
+  deviceInfo["IPAddress"]= Sipaddrs;
   char buff[500];
-  root.printTo(buff, sizeof(buff));
+  serializeJson(doc, buff, sizeof(buff));
   Serial.println(F("publishing device manageTopic metadata:"));
   Serial.println(buff);
   sent++;
@@ -483,7 +475,7 @@ void setup() {
   RFIDReader.begin(9600);                                                                           //inciamos el puerto Serial por Software a la velocidad indicada (def: 9600)
   //leemos los parametros de configuracion almacenados en la memoria en el JSON de configuracion
   Read_Configuration_JSON();
-  //Inicializar el cliente NTP con la configuracion cargada de SPIFFS
+  //Inicializar el cliente NTP con la configuracion cargada de LittleFS
   pTimeClient = new NTPClient(btnconfig.NTPClient_SERVER, 0, atoi(btnconfig.NTPClient_interval));
   //Configutacion del Wifi
   //verificar si el boton esta apoachado para configurar wifi
@@ -615,15 +607,20 @@ void readTag() {
       if (count > 3 && count < 8) {
         inputString += incomingdata;
       }
-      delay(10);
+      delay(2);  // ~1ms per byte at 9600 baud, 2ms margin is sufficient
       if (count == 12) break;
       count++ ;
     }
+    count = 0;
     Serial.print(F("RFID CARD ID IS: "));
     Serial.println(inputString);
+    // Reject duplicate consecutive reads early — avoid unnecessary state transition and feedback
+    if (OldTagRead == inputString) {
+      Serial.println(F("Duplicate read, ignoring"));
+      return;
+    }
     Verde.Flash(flash_corto);
     alarm.Beep(tono_corto);
-    count = 0;
     readedTag = !readedTag;
     fsm_state = STATE_TRANSMIT_CARD_DATA;
   }
@@ -648,7 +645,7 @@ void publishRF_ID_Manejo () {
   if (client.publish(manageTopic, Manejo_Data_Json.Administracion_Dispositivo(msg,VBat,WifiSignal,published,failed,ISO8601,Smacaddrs,Sipaddrs))) {
     Serial.println(F("enviado data de dispositivo:OK"));
     published ++;
-    failed = 0;
+    failed = failed / 2;  // decay instead of reset — masks persistent degradation less
   } else {
     Serial.print(F("enviado data de dispositivo:FAILED"));
     failed ++;
@@ -663,7 +660,9 @@ void NormalReset() {
     if (hora > 24) {
       strlcpy(msg, "24h Normal Reset", sizeof(msg));
       VBat = analogRead(A0) * (4.2 / 1024.0); // TODO: calibrate voltage divider ratio for actual hardware
-      publishRF_ID_Manejo();        //publishRF_ID_Manejo (String IDModulo,String MSG,float vValue, int fail,String Tstamp)
+      if (!client.connected()) { MQTTreconnect(); }
+      CheckTime();
+      publishRF_ID_Manejo();
       client.disconnect();
       hora = 0;
       ESP.restart();
@@ -673,14 +672,15 @@ void NormalReset() {
 }
 //--------------------------------------------------------------------------Funcion de checkear alarmas.!!!------------------------------------------------------------------------------
 void checkalarms () {
-  if (WiFi.RSSI() < -85) {
+  if (WiFi.RSSI() < RSSI_LOW_THRESHOLD) {
     if (BeepSignalWarning < 4) {
       alarm.Beep(tono_largo);
       BeepSignalWarning++;
     }
     Blanco.CFlash(flash_largo);
+  } else {
+    BeepSignalWarning = 0;
   }
-  BeepSignalWarning = 0;
 }
 
 //--------------------------------------------------------------------------Funcion de publicar los datos de estado si ha pasado el tiempo establecido entonces*!!------------------------------------------------------------------------------
@@ -688,14 +688,14 @@ void updateDeviceInfo() {
   strlcpy(msg, "on", sizeof(msg));
   VBat = analogRead(A0) * (4.2 / 1024.0); // TODO: calibrate voltage divider ratio for actual hardware
   WifiSignal = WiFi.RSSI();
-  if (WiFi.RSSI() < -75) {
+  if (WiFi.RSSI() < RSSI_LOW_THRESHOLD) {
     strlcpy(msg, "LOWiFi", sizeof(msg));
     Rojo.Flash(flash_medio);
     alarm.Beep(tono_medio);
     Serial.print(WiFi.SSID());
     Serial.print(" ");
     Serial.println(WiFi.RSSI());
-    fsm_state = STATE_TRANSMIT_ALARM_UPDATE; //publishRF_ID_Manejo(NodeID, msg, VBat, WifiSignal, published, failed, ISO8601, Smacaddrs, Sipaddrs);        //publishRF_ID_Manejo (String IDModulo,String MSG,float vValue, int fail,String Tstamp)
+    fsm_state = STATE_TRANSMIT_DEVICE_UPDATE;
     return;
   }
 }
@@ -708,7 +708,7 @@ void publish_Boton_Data(){
     Verde.Flash(flash_corto);
     alarm.Beep(tono_corto);
     published ++;
-    failed = 0;
+    failed = failed / 2;
     } else {
       Serial.println(F("enviado data de boton: FAILED"));
       Rojo.Flash(flash_corto);
@@ -731,7 +731,7 @@ boolean publishRF_ID_Lectura() {
       alarm.Beep(tono_corto);
       published ++;
       inputString = "";
-      failed = 0;
+      failed = failed / 2;
       return true;
     } else {
       Serial.println(F("enviado data de RFID: FAILED"));
@@ -754,17 +754,21 @@ void loop() {
   switch(fsm_state){                                                                                //se lee en que stado debe iniciar el Switch de estados
     case STATE_IDLE :                                                                               //Si el estado que se lee es el por defecto IDLE cunado el boton no hace nada 90% del tiempo
       readTag();                                                                                    //leer su hay alguna tarjeta
+      if (fsm_state != STATE_IDLE) break;                                                           //prioridad: card > button > timers
       readBtn();                                                                                    //leer si se presiono el boton
+      if (fsm_state != STATE_IDLE) break;
       NormalReset();
       checkalarms();
       if (millis() - Last_Update_Millis > 30 * 60 * Universal_1_sec_Interval) {
         Last_Update_Millis = millis(); //Actulizar la ultima hora de envio
         fsm_state = STATE_UPDATE;
+        break;
       }
 
       if (millis() - Last_NTP_Update_Millis > 60 * 60 * Universal_1_sec_Interval) {
         Last_NTP_Update_Millis = millis(); //Actulizar la ultima hora de sincronizacion NTP
         fsm_state = STATE_UPDATE_TIME;
+        break;
       }
 
       if ( millis() - RetardoLectura > 5 * Universal_1_sec_Interval) {
@@ -790,17 +794,21 @@ void loop() {
           
     break;
     
-    case STATE_TRANSMIT_BOTON_DATA: //Si se presiono el boton
-      //Check connection
-      //Send the data
+    case STATE_TRANSMIT_BOTON_DATA:
       Serial.println(F("BOTON DATA SENT"));
+      if (!client.connected()) {
+        MQTTreconnect();
+      }
       CheckTime();
       publish_Boton_Data();
       fsm_state = STATE_IDLE;
     break;
-    
+
     case STATE_TRANSMIT_CARD_DATA:
       Serial.println(F("CARD DATA SENT"));
+      if (!client.connected()) {
+        MQTTreconnect();
+      }
       CheckTime();
       publishRF_ID_Lectura();
       clearBufferArray();
@@ -820,18 +828,6 @@ void loop() {
         MQTTreconnect();
       }
       //verificar la hora
-      CheckTime();
-      publishRF_ID_Manejo();
-      fsm_state = STATE_IDLE;
-    break;
-
-    case STATE_TRANSMIT_ALARM_UPDATE:
-      Serial.println(F("STATE_TRANSMIT_ALARM_UPDATE"));
-      //verificar que el cliente de Conexion al servicio se encuentre conectado
-      if (!client.connected()) {
-        MQTTreconnect();
-      }
-      // Verificar la hora
       CheckTime();
       publishRF_ID_Manejo();
       fsm_state = STATE_IDLE;
@@ -857,6 +853,11 @@ void loop() {
 
     case STATE_RDY_TO_UPDATE_OTA:
       ArduinoOTA.handle();
+    break;
+
+    default:
+      Serial.println(F("FSM: unknown state, resetting to IDLE"));
+      fsm_state = STATE_IDLE;
     break;
   }
   if (fsm_state != STATE_RDY_TO_UPDATE_OTA) {

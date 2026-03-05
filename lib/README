@@ -15,7 +15,7 @@ IoT device firmware for an ESP8266-based (WeMos D1 mini) RFID and capacitive tou
 - RGB LED and piezo buzzer feedback
 - Device health monitoring (WiFi RSSI, message counters, battery voltage)
 - Automatic restart on persistent MQTT failures (150 threshold)
-- SPIFFS-based persistent configuration storage
+- LittleFS-based persistent configuration storage
 
 ## Hardware
 
@@ -50,18 +50,91 @@ IoT device firmware for an ESP8266-based (WeMos D1 mini) RFID and capacitive tou
 
 ## Finite State Machine
 
-The firmware runs a state machine with the following states:
+The firmware runs a priority-based finite state machine with 7 states. Event priority is **card > button > timers** -- higher-priority events preempt lower-priority checks within the IDLE state.
 
-| State                       | Description                                       |
-|-----------------------------|---------------------------------------------------|
-| IDLE (0)                    | Default - listening for button press or RFID read |
-| TRANSMIT_BOTON_DATA (1)    | Publishing button press event via MQTT            |
-| TRANSMIT_CARD_DATA (2)     | Publishing RFID card read event via MQTT          |
-| UPDATE (3)                  | Periodic device info check                        |
-| TRANSMIT_ALARM_UPDATE (4)  | Sending low WiFi signal alarm                     |
-| TRANSMIT_DEVICE_UPDATE (5) | Sending device management data                    |
-| UPDATE_TIME (6)             | NTP time resynchronization                        |
-| RDY_TO_UPDATE_OTA (7)      | OTA firmware update mode                          |
+### State Diagram
+
+```
+                         ┌──────────────────────────────────────────┐
+                         │              STARTUP                     │
+                         │  Load config, WiFi connect, NTP sync     │
+                         └──────────────┬───────────────────────────┘
+                                        │
+                          ┌─────────────▼─────────────┐
+            ┌────────────►│         IDLE (0)           │◄───────────────────────┐
+            │             │                            │                        │
+            │             │  1. readTag()  ─────────┐  │                        │
+            │             │  2. readBtn()  ────────┐│  │                        │
+            │             │  3. checkalarms()      ││  │                        │
+            │             │  4. 30min timer ──┐    ││  │                        │
+            │             │  5. 60min timer ┐ │    ││  │                        │
+            │             │  6. MQTT keepalive │    ││  │                        │
+            │             └──┬──────┬───────┼─┼────┼┼──┘                        │
+            │                │      │       │ │    ││                            │
+            │   ┌────────────┘      │       │ │    │└───────────────┐            │
+            │   │  ┌────────────────┘       │ │    │                │            │
+            │   │  │  ┌─────────────────────┘ │    │                │            │
+            │   │  │  │  ┌────────────────────┘    │                │            │
+            │   │  │  │  │                         │                │            │
+            │   ▼  ▼  ▼  ▼                         ▼                ▼            │
+            │  ┌────────────┐              ┌──────────────┐  ┌─────────────┐     │
+            │  │UPDATE_TIME │              │ TRANSMIT     │  │ TRANSMIT    │     │
+            │  │   (6)      │              │ BOTON_DATA   │  │ CARD_DATA   │     │
+            │  │            │              │   (1)        │  │   (2)       │     │
+            │  │ NTP sync   │              │              │  │             │     │
+            │  │ (5 retries)│              │ MQTT check   │  │ MQTT check  │     │
+            │  └─────┬──────┘              │ CheckTime()  │  │ CheckTime() │     │
+            │        │                     │ publish_Boton │  │ publishRFID │     │
+            │        └──────►IDLE          └──────┬───────┘  └──────┬──────┘     │
+            │                                     │                 │            │
+            │                                     └──────►IDLE◄────┘            │
+            │                                                                   │
+            │  ┌────────────┐                                                   │
+            │  │ UPDATE (3) │                                                   │
+            │  │            │                                                   │
+            │  │ updateDev  │                                                   │
+            │  │ Info()     │                                                   │
+            │  │ (sets msg  │                                                   │
+            │  │  "on" or   │                                                   │
+            │  │  "LOWiFi") │                                                   │
+            │  └──────┬─────┘                                                   │
+            │         │ always                                                  │
+            │         ▼                                                         │
+            │  ┌──────────────────┐                                             │
+            │  │ TRANSMIT_DEVICE  │                                             │
+            │  │ UPDATE (5)       │─────────────────────────────────────────────┘
+            │  │                  │
+            │  │ MQTT check       │
+            │  │ CheckTime()      │
+            │  │ publishRF_ID_    │
+            │  │ Manejo()         │
+            │  └──────────────────┘
+            │
+            │  ┌──────────────────┐
+            │  │ RDY_TO_UPDATE    │   (entered from startup only,
+            │  │ OTA (7)          │    loops indefinitely)
+            │  │                  │
+            │  │ ArduinoOTA       │
+            │  │ .handle()        │
+            │  └──────────────────┘
+```
+
+### State Transition Summary
+
+| From State | To State | Trigger |
+| --- | --- | --- |
+| IDLE | TRANSMIT_CARD_DATA | RFID card detected by `readTag()` (non-duplicate) |
+| IDLE | TRANSMIT_BOTON_DATA | Button press detected by `readBtn()` |
+| IDLE | UPDATE | 30-minute periodic timer expires |
+| IDLE | UPDATE_TIME | 60-minute NTP resync timer expires |
+| IDLE | (restart) | Failed MQTT messages exceed threshold (150) |
+| TRANSMIT_BOTON_DATA | IDLE | After publishing button event |
+| TRANSMIT_CARD_DATA | IDLE | After publishing card event |
+| UPDATE | TRANSMIT_DEVICE_UPDATE | Always (msg carries "on" or "LOWiFi") |
+| TRANSMIT_DEVICE_UPDATE | IDLE | After publishing device data |
+| UPDATE_TIME | IDLE | After NTP sync (up to 5 retries) |
+| RDY_TO_UPDATE_OTA | RDY_TO_UPDATE_OTA | Loops waiting for OTA upload |
+| (any unknown) | IDLE | Default handler resets to IDLE |
 
 ## MQTT Communication
 
@@ -84,7 +157,7 @@ The firmware runs a state machine with the following states:
 }
 ```
 
-## Configuration (SPIFFS)
+## Configuration (LittleFS)
 
 Stored as `/config.json` on the device flash:
 
@@ -99,7 +172,7 @@ Stored as `/config.json` on the device flash:
 
 ## Startup Behavior
 
-1. Load config from SPIFFS
+1. Load config from LittleFS
 2. **First 2-second window:** Hold button to enter WiFi configuration portal
 3. **Second 2-second window:** Hold button to enter OTA update mode
 4. Otherwise: Auto-connect WiFi, sync NTP, connect MQTT, enter IDLE state
@@ -122,15 +195,54 @@ pio device monitor -b 115200
 ## Dependencies
 
 - ESP8266WiFi / WiFiUdp
-- WiFiManager
-- PubSubClient (MQTT)
-- ArduinoJson
+- WiFiManager v2.x
+- PubSubClient v2.8 (MQTT)
+- ArduinoJson v7
 - ArduinoOTA
 - ESP8266WebServer / ESP8266mDNS / DNSServer
-- SPIFFS (FS)
+- LittleFS (FS)
 
 ## Known Limitations
 
-- Battery voltage on A0 is currently hardcoded to 4.2V (not actively read)
-- NTP synchronization can be slow on startup
+- NTP synchronization can be slow on startup (mitigated with 5-retry loop)
 - Maximum MQTT payload buffer: 300 bytes
+- Credentials are stored in source code (Settings.h)
+
+## Changelog
+
+### v5.00 - Pre-release Hardening
+
+Storage migration:
+
+- Migrated from SPIFFS to LittleFS (SPIFFS deprecated on ESP8266)
+
+Library updates:
+
+- ArduinoJson v5.13 -> v7 (all 8 call sites migrated to new API)
+- WiFiManager v0.16 -> v2.x
+- Removed incompatible SoftwareSerialEsp32 dependency (ESP8266 provides SoftwareSerial natively)
+- Fixed SoftwareSerial constructor to 3-arg form (v8.x API)
+
+FSM fixes (round 1):
+
+- Added `default:` case to switch -- resets unknown states to IDLE with serial warning
+- Fixed `checkalarms()` -- `BeepSignalWarning` only resets when RSSI is above threshold
+- `STATE_UPDATE` no longer overwrites `STATE_TRANSMIT_ALARM_UPDATE` set by `updateDeviceInfo()`
+- Added MQTT reconnect checks before publish in `TRANSMIT_BOTON_DATA` and `TRANSMIT_CARD_DATA`
+- Added early-exit guards in IDLE to enforce event priority (card > button > timers)
+
+FSM fixes (round 2):
+
+- `MQTTreconnect()` capped at 3 retries per call (was infinite loop, could block 30+ seconds)
+- `NormalReset()` now checks MQTT connection and calls `CheckTime()` before publishing
+- `readTag()` rejects duplicate consecutive card reads early (before LED/buzzer/state change)
+- RFID read delay reduced from 10ms to 2ms per byte (120ms -> 24ms total blocking)
+- Merged `STATE_TRANSMIT_ALARM_UPDATE` into `STATE_TRANSMIT_DEVICE_UPDATE` (identical logic, `msg` field carries the distinction)
+- Unified RSSI alarm threshold to `RSSI_LOW_THRESHOLD` constant in Settings.h (was -85 in `checkalarms()` vs -75 in `updateDeviceInfo()`)
+- `failed` counter now halves on success instead of zeroing (prevents masking persistent degradation)
+
+Code quality:
+
+- Added include guard to Settings.h
+- Added `build_flags = -DMQTT_MAX_PACKET_SIZE=512` for PubSubClient
+- Pinned library versions in platformio.ini
