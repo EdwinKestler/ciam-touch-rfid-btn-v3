@@ -3,6 +3,8 @@
   Created by Edwin Kestler, Jan 29 , 2019.
   Released into the public domain.
 */
+#ifndef SETTINGS_H
+#define SETTINGS_H
 //--------------------------------------------------------------------------------------------------//Parametros de Credenciales para OTA
 const char* ssid_OTA = "RFID_OTA";
 const char* password_OTA = "FLATB0X_OTA";
@@ -30,6 +32,5 @@ unsigned long Btn_conf_Mode_Interval = 2000UL;                                  
 
 //-------- Variables de ERROR EN ENVIO de paquetes de MQTT ANTES DE REINICIO
 #define FAILTRESHOLD 150
-const float BATTRESHHOLD = 3.3;
 
-
+#endif // SETTINGS_H

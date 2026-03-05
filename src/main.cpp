@@ -54,9 +54,8 @@ String  Sipaddrs  = "000.000.000.000";                                          
 //--------------------------------------------------------------------------------------------------definicon de variables para NTP
 WiFiUDP ntpUDP;                                                                                     //Cliente de Servicio UDP
 boolean NTP_response = false;                                                                       //Bandera de comprobacion de lectura exitosa del servicio de Hora por internet 
-String ISO8601;                                                                                     //Variable para almacenar la marca del timepo (timestamp) de acuerdo al formtao ISO8601
-NTPClient timeClient("129.6.15.28", 0, atoi(btnconfig.NTPClient_interval));            //Cliente de conexion al servicio de hora por internet
-//TESTING NTPClient timeClient(btnconfig.NTPClient_SERVER, 0, atoi(btnconfig.NTPClient_interval));            //Cliente de conexion al servicio de hora por internet
+char ISO8601[21] = "";                                                                               //Variable para almacenar la marca del timepo (timestamp) de acuerdo al formtao ISO8601
+NTPClient* pTimeClient = nullptr;                                                                    //Puntero al cliente NTP, se inicializa en setup() despues de cargar config
 
 //--------------------------------------------------------------------------------------------------definicion de pines de Bzzr
 BTN_Bzzr alarm(D5);                                                                                 //definicio de variable, pueto fisico en el board y tiempo de sonido para la bocina piezo electrica 
@@ -97,16 +96,16 @@ String OldTagRead = "1";                                                        
 char charBuff[DataLenght];
 boolean readedTag = false;
 unsigned int count = 0;
-String msg = "";
+char msg[20] = "";
 //--------------------------------------------------------------------------------------------------//variables globales de eventos de lectura de tarjetas
-String Identificador_ID_Evento_Tarjeta;
 int Numero_ID_Eventos_Tarjeta;
 //--------------------------------------------------------------------------------------------------//variables Globales de lectura de eventos de boton
-String identificador_ID_Evento_Boton;
+char identificador_ID_Evento_Boton[32];
 int Numero_ID_Evento_Boton = 0;
 //--------------------------------------------------------------------------------------------------//variables Globales para reinicio de hardware cada 24 horas (pendiente de cambio por time EPOCH)
 unsigned long Last_Normal_Reset_Millis;                                                             //Variable para llevar conteo del tiempo desde la ultima publicacion
 unsigned long Last_Update_Millis;                                                                   //Variable para llevar conteo del tiempo desde la ultima publicacion
+unsigned long Last_NTP_Update_Millis;                                                               //Variable para llevar conteo del tiempo desde la ultima sincronizacion NTP
 unsigned long Last_Warning;                                                                         //Variable para llevar conteo del tiempo desde la ultima publicacion
 //--------------------------------------------------------------------------------------------------//Variables Globales de alerta
 int BeepSignalWarning = 0;
@@ -143,13 +142,13 @@ void saveConfigCallback () {
 //--------------------------------------------------------------------------------------------------definicion de funcion que verifica y syncroniza la hora local con la hora del servicio de internet
 time_t NTP_ready(){
   Serial.println(F("Transmit NTP Request"));                                                        //Mensaje Serial para verificacion del llamado de funcion en caso de falla
-  timeClient.update();                                                                              //Funcion de la Libreria Externa que se llama para actulizar la lectura con el servicios de hora de internet
+  pTimeClient->update();                                                                              //Funcion de la Libreria Externa que se llama para actulizar la lectura con el servicios de hora de internet
   uint32_t beginWait = millis();                                                                    //Variable para almacenar el momento en el que se empieza la espera de respuesta del servidor de hora de internet
   while (millis() - beginWait < 1500 ) {                                                            //Funcion en la que se define un periodo maximo de espera para la sincornizacion de hora de intarnet
 
     Serial.println(".");                                                                            //Mensaje Serial para verificacion de la lectura de tiempo UNIX del servicio de hora de internet
     delay(Universal_1_sec_Interval);
-    unsigned long EpochTime = timeClient.getRawTime();                                            //Alamcenamiento de la hora UNIX de forma local
+    unsigned long EpochTime = pTimeClient->getRawTime();                                            //Alamcenamiento de la hora UNIX de forma local
 
     if( EpochTime >= 3610){                                                                         //condicional comparativo para confirmar Si la hora contiene un formato mas grande  cualquier cosa random
       Serial.println(F("Receive NTP Response"));                                                    //Mensaje Serial para la verificacion de ejecucion del la condicional compartiva
@@ -199,47 +198,21 @@ void Read_Configuration_JSON(){
     Serial.println(F("Fallo en Abrir el Sistema de Archivos"));                                     //Mensje serial para indicar que Fallo el montar el sistema de manejo de archivos
   }
 }
-//--------------------------------------------------------------------------------------------------//Boot to on demand WifiManager
-void BOOT_TO_On_Demand_Wifi_Manager(){
-
-  WiFiManagerParameter custom_mqtt_server("server","MQTT_Server",btnconfig.MQTT_Server,64);
-  WiFiManagerParameter custom_mqtt_port("port","MQTT_Port",btnconfig.MQTT_Port,6);
-  WiFiManagerParameter custom_mqtt_user("user","MQTT_User",btnconfig.MQTT_User,64);
-  WiFiManagerParameter custom_mqtt_pass("password","MQTT_Password",btnconfig.MQTT_Password,64);
-  WiFiManagerParameter custom_NTPClient_SERVER("NTPServer","NTPClient_SERVER",btnconfig.NTPClient_SERVER,64);
-  WiFiManagerParameter custom_NTPClient_interval("NTPInterval","NTPClient_interval",btnconfig.NTPClient_interval,6);
-  
-  WiFiManager wifiManager;
-
-  wifiManager.setSaveConfigCallback(saveConfigCallback);
-
-  wifiManager.addParameter(&custom_mqtt_server);
-  wifiManager.addParameter(&custom_mqtt_port);
-  wifiManager.addParameter(&custom_mqtt_user);
-  wifiManager.addParameter(&custom_mqtt_pass);
-  wifiManager.addParameter(&custom_NTPClient_interval);
-  wifiManager.addParameter(&custom_NTPClient_SERVER);
-  
-  Serial.println(F("Empezando Configuracion de WIFI Bajo Demanda"));
-  Purpura.COn();
-  alarm.Beep(tono_medio);
-  alarm.Beep(tono_medio);
-  if (!wifiManager.startConfigPortal("flatwifi")) {
-    //reset and try again, or maybe put it to deep sleep
-    ESP.reset();
-    delay(5 * Universal_1_sec_Interval);
-  }
-
-  strcpy(btnconfig.MQTT_Server, custom_mqtt_server.getValue());
-  strcpy(btnconfig.MQTT_Port, custom_mqtt_port.getValue());
-  strcpy(btnconfig.MQTT_User, custom_mqtt_user.getValue());
-  strcpy(btnconfig.MQTT_Password, custom_mqtt_pass.getValue());
-  strcpy(btnconfig.NTPClient_SERVER,custom_NTPClient_SERVER.getValue());
-  strcpy(btnconfig.NTPClient_interval,custom_NTPClient_interval.getValue());
+//--------------------------------------------------------------------------------------------------//Funcion auxiliar para copiar parametros de WiFiManager a btnconfig y guardar en SPIFFS
+void copyWifiManagerParams(
+    WiFiManagerParameter &srv, WiFiManagerParameter &port, WiFiManagerParameter &usr,
+    WiFiManagerParameter &pwd, WiFiManagerParameter &ntp_srv, WiFiManagerParameter &ntp_int)
+{
+  strlcpy(btnconfig.MQTT_Server, srv.getValue(), sizeof(btnconfig.MQTT_Server));
+  strlcpy(btnconfig.MQTT_Port, port.getValue(), sizeof(btnconfig.MQTT_Port));
+  strlcpy(btnconfig.MQTT_User, usr.getValue(), sizeof(btnconfig.MQTT_User));
+  strlcpy(btnconfig.MQTT_Password, pwd.getValue(), sizeof(btnconfig.MQTT_Password));
+  strlcpy(btnconfig.NTPClient_SERVER, ntp_srv.getValue(), sizeof(btnconfig.NTPClient_SERVER));
+  strlcpy(btnconfig.NTPClient_interval, ntp_int.getValue(), sizeof(btnconfig.NTPClient_interval));
 
   if(shouldSaveConfig){
     Serial.println(F("Guardando Cambios de Configuracion"));
-    StaticJsonBuffer<512> jsonBuffer;  
+    StaticJsonBuffer<512> jsonBuffer;
     JsonObject& root = jsonBuffer.createObject();
     root["MQTT_Server"] = btnconfig.MQTT_Server;
     root["MQTT_Port"] = btnconfig.MQTT_Port;
@@ -257,30 +230,59 @@ void BOOT_TO_On_Demand_Wifi_Manager(){
     root.printTo(Serial);
     root.printTo(configFile);
     configFile.close();
-    //end Save
   }
 }
+//--------------------------------------------------------------------------------------------------//Funcion auxiliar para preparar WiFiManager con parametros custom
+void setupWifiManagerParams(WiFiManager &wm,
+    WiFiManagerParameter &srv, WiFiManagerParameter &port, WiFiManagerParameter &usr,
+    WiFiManagerParameter &pwd, WiFiManagerParameter &ntp_srv, WiFiManagerParameter &ntp_int)
+{
+  wm.setSaveConfigCallback(saveConfigCallback);
+  wm.addParameter(&srv);
+  wm.addParameter(&port);
+  wm.addParameter(&usr);
+  wm.addParameter(&pwd);
+  wm.addParameter(&ntp_int);
+  wm.addParameter(&ntp_srv);
+}
 //--------------------------------------------------------------------------------------------------//Boot to on demand WifiManager
-void BOOT_TO_Wifi_Manager(){
-  
+void BOOT_TO_On_Demand_Wifi_Manager(){
   WiFiManagerParameter custom_mqtt_server("server","MQTT_Server",btnconfig.MQTT_Server,64);
   WiFiManagerParameter custom_mqtt_port("port","MQTT_Port",btnconfig.MQTT_Port,6);
   WiFiManagerParameter custom_mqtt_user("user","MQTT_User",btnconfig.MQTT_User,64);
   WiFiManagerParameter custom_mqtt_pass("password","MQTT_Password",btnconfig.MQTT_Password,64);
   WiFiManagerParameter custom_NTPClient_SERVER("NTPServer","NTPClient_SERVER",btnconfig.NTPClient_SERVER,64);
   WiFiManagerParameter custom_NTPClient_interval("NTPInterval","NTPClient_interval",btnconfig.NTPClient_interval,6);
-  
+
   WiFiManager wifiManager;
+  setupWifiManagerParams(wifiManager, custom_mqtt_server, custom_mqtt_port, custom_mqtt_user,
+                         custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval);
 
-  wifiManager.setSaveConfigCallback(saveConfigCallback);
+  Serial.println(F("Empezando Configuracion de WIFI Bajo Demanda"));
+  Purpura.COn();
+  alarm.Beep(tono_medio);
+  alarm.Beep(tono_medio);
+  if (!wifiManager.startConfigPortal("flatwifi")) {
+    ESP.reset();
+    delay(5 * Universal_1_sec_Interval);
+  }
 
-  wifiManager.addParameter(&custom_mqtt_server);
-  wifiManager.addParameter(&custom_mqtt_port);
-  wifiManager.addParameter(&custom_mqtt_user);
-  wifiManager.addParameter(&custom_mqtt_pass);
-  wifiManager.addParameter(&custom_NTPClient_interval);
-  wifiManager.addParameter(&custom_NTPClient_SERVER);
-  
+  copyWifiManagerParams(custom_mqtt_server, custom_mqtt_port, custom_mqtt_user,
+                        custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval);
+}
+//--------------------------------------------------------------------------------------------------//Boot to auto WifiManager
+void BOOT_TO_Wifi_Manager(){
+  WiFiManagerParameter custom_mqtt_server("server","MQTT_Server",btnconfig.MQTT_Server,64);
+  WiFiManagerParameter custom_mqtt_port("port","MQTT_Port",btnconfig.MQTT_Port,6);
+  WiFiManagerParameter custom_mqtt_user("user","MQTT_User",btnconfig.MQTT_User,64);
+  WiFiManagerParameter custom_mqtt_pass("password","MQTT_Password",btnconfig.MQTT_Password,64);
+  WiFiManagerParameter custom_NTPClient_SERVER("NTPServer","NTPClient_SERVER",btnconfig.NTPClient_SERVER,64);
+  WiFiManagerParameter custom_NTPClient_interval("NTPInterval","NTPClient_interval",btnconfig.NTPClient_interval,6);
+
+  WiFiManager wifiManager;
+  setupWifiManagerParams(wifiManager, custom_mqtt_server, custom_mqtt_port, custom_mqtt_user,
+                         custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval);
+
   Serial.println(F("Empezando Configuracion de WIFI en Automatico"));
   Purpura.COn();
   if (!wifiManager.autoConnect("flatwifi")) {
@@ -288,41 +290,13 @@ void BOOT_TO_Wifi_Manager(){
     alarm.Beep(tono_corto);
     Purpura.CFlash(flash_medio);
     if (!wifiManager.startConfigPortal("flatwifi")) {
-      //reset and try again, or maybe put it to deep sleep
       ESP.reset();
       delay(5 * Universal_1_sec_Interval);
     }
   }
 
-  strcpy(btnconfig.MQTT_Server, custom_mqtt_server.getValue());
-  strcpy(btnconfig.MQTT_Port, custom_mqtt_port.getValue());
-  strcpy(btnconfig.MQTT_User, custom_mqtt_user.getValue());
-  strcpy(btnconfig.MQTT_Password, custom_mqtt_pass.getValue());
-  strcpy(btnconfig.NTPClient_SERVER,custom_NTPClient_SERVER.getValue());
-  strcpy(btnconfig.NTPClient_interval,custom_NTPClient_interval.getValue());
-
-  if(shouldSaveConfig){
-    Serial.println(F("Guardando Cambios de Configuracion"));
-    StaticJsonBuffer<512> jsonBuffer;  
-    JsonObject& root = jsonBuffer.createObject();
-    root["MQTT_Server"] = btnconfig.MQTT_Server;
-    root["MQTT_Port"] = btnconfig.MQTT_Port;
-    root["MQTT_User"] = btnconfig.MQTT_User;
-    root["MQTT_Password"] = btnconfig.MQTT_Password;
-    root["NTPClient_SERVER"] = btnconfig.NTPClient_SERVER;
-    root["NTPClient_interval"] = btnconfig.NTPClient_interval;
-
-    File configFile = SPIFFS.open("/config.json", "w");
-    if(!configFile){
-      Serial.println(F("Fallo al intentar abrir el archivo de configuracion para escritura"));
-      return;
-    }
-
-    root.printTo(Serial);
-    root.printTo(configFile);
-    configFile.close();
-    //end Save
-  }
+  copyWifiManagerParams(custom_mqtt_server, custom_mqtt_port, custom_mqtt_user,
+                        custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval);
 }
 //--------------------------------------------------------------------------------------------------//funcion donde se define el inicio a Actulizacion por OTA
 void BOOT_TO_OTA() {
@@ -397,9 +371,16 @@ void mqttConnect() {
     char charBuf[30];
     String CID (clientId + NodeID);
     CID.toCharArray(charBuf, 30);
+    int mqttRetry = 0;
     while (!!!client.connect(charBuf, btnconfig.MQTT_User,btnconfig.MQTT_Password)) {               //Si no se encuentra conectado al servicio intentar la conexion con las credenciales Clientid, Metodo de autenticacion y el Tokeno password
       Serial.print(F("."));                                                                         //imprimir una serie de puntos mientras se da la conexion al servicio
       Blanco.CFlash(flash_corto);
+      mqttRetry++;
+      if (mqttRetry > 30) {
+        Serial.println(F("\nMQTT connect timeout, restarting..."));
+        ESP.restart();
+      }
+      delay(Universal_1_sec_Interval);
     }
     Serial.println();                                                                               //dejar un espacio en la terminal para diferenciar los mensajes.
   }
@@ -502,6 +483,8 @@ void setup() {
   RFIDReader.begin(9600);                                                                           //inciamos el puerto Serial por Software a la velocidad indicada (def: 9600)
   //leemos los parametros de configuracion almacenados en la memoria en el JSON de configuracion
   Read_Configuration_JSON();
+  //Inicializar el cliente NTP con la configuracion cargada de SPIFFS
+  pTimeClient = new NTPClient(btnconfig.NTPClient_SERVER, 0, atoi(btnconfig.NTPClient_interval));
   //Configutacion del Wifi
   //verificar si el boton esta apoachado para configurar wifi
   Serial.print(F("            estado del Boton: "));
@@ -552,7 +535,7 @@ void setup() {
     int NTP_Update_interval = atoi(btnconfig.NTPClient_interval);
     Serial.println(NTP_Update_interval);
     //iniciamos el cliente de NTP
-    timeClient.begin();
+    pTimeClient->begin();
 
     if(WiFi.status() == WL_CONNECTED){
       while (NTP_response == false){
@@ -592,6 +575,10 @@ void setup() {
     delay(Universal_1_sec_Interval);
     // put your setup code here, to run once:
     Blanco.COff();
+    Last_Normal_Reset_Millis = millis();
+    Last_Update_Millis = millis();
+    Last_NTP_Update_Millis = millis();
+    RetardoLectura = millis();
     fsm_state = STATE_IDLE; //inciar el estado del la maquina de stado finito
     yield();
   }
@@ -603,30 +590,13 @@ void CheckTime(){ //digital clock display of the time
   if (timeStatus() != timeNotSet) {
     if (now() != prevDisplay) {                                             //update the display only if time has changed
       prevDisplay = now();
-      ISO8601 = String (year(), DEC);
-      ISO8601 += "-";
-      ISO8601 += month();
-      ISO8601 += "-";
-      ISO8601 += day();
-      ISO8601 +="T";
-      if ((hour() >= 0)&& (hour() < 10)){
-        //Serial.print(F("+0:"));
-        //Serial.println(hour());
-        ISO8601 +="0";
-        ISO8601 += hour();
-      }else{
-        //Serial.print(F("hora:"));
-        //Serial.println(hour());
-        ISO8601 += hour();
-      }
-      ISO8601 += ":";
-      ISO8601 += minute();
-      ISO8601 += ":";
-      ISO8601 += second();
+      snprintf(ISO8601, sizeof(ISO8601), "%04d-%02d-%02dT%02d:%02d:%02d", year(), month(), day(), hour(), minute(), second());
     }
   }
-  Serial.println(F("Time not Sync, Syncronizing time"));
-  NTP_ready();
+  else {
+    Serial.println(F("Time not Sync, Syncronizing time"));
+    NTP_ready();
+  }
 }
 //-----------------------------------------------------------------------------------Limpiando el Buffer donde se almacena los tarjetas
 void clearBufferArray() {             // function to clear buffer array
@@ -664,7 +634,7 @@ void readBtn() {
   if (T_button.check() == true){
     Serial.println(F("Pressed"));
     Numero_ID_Evento_Boton ++;
-    identificador_ID_Evento_Boton = String (NodeID + "-" + Numero_ID_Evento_Boton);
+    snprintf(identificador_ID_Evento_Boton, sizeof(identificador_ID_Evento_Boton), "%s-%d", NodeID.c_str(), Numero_ID_Evento_Boton);
     Azul.Flash(flash_corto);
     alarm.Beep(tono_corto);
     fsm_state = STATE_TRANSMIT_BOTON_DATA; //PUTS FSM MACHINE ON TRANSMIT DATA MODE
@@ -691,10 +661,10 @@ void NormalReset() {
     hora++;
     WifiSignal = WiFi.RSSI();
     if (hora > 24) {
-      msg = ("24h Normal Reset");
-      VBat = 4.2; //Bateria();
+      strlcpy(msg, "24h Normal Reset", sizeof(msg));
+      VBat = analogRead(A0) * (4.2 / 1024.0); // TODO: calibrate voltage divider ratio for actual hardware
       publishRF_ID_Manejo();        //publishRF_ID_Manejo (String IDModulo,String MSG,float vValue, int fail,String Tstamp)
-      void disconnect ();
+      client.disconnect();
       hora = 0;
       ESP.restart();
     }
@@ -715,10 +685,11 @@ void checkalarms () {
 
 //--------------------------------------------------------------------------Funcion de publicar los datos de estado si ha pasado el tiempo establecido entonces*!!------------------------------------------------------------------------------
 void updateDeviceInfo() {
-  msg = ("on");
+  strlcpy(msg, "on", sizeof(msg));
+  VBat = analogRead(A0) * (4.2 / 1024.0); // TODO: calibrate voltage divider ratio for actual hardware
   WifiSignal = WiFi.RSSI();
   if (WiFi.RSSI() < -75) {
-    msg = ("LOWiFi");
+    strlcpy(msg, "LOWiFi", sizeof(msg));
     Rojo.Flash(flash_medio);
     alarm.Beep(tono_medio);
     Serial.print(WiFi.SSID());
@@ -731,6 +702,7 @@ void updateDeviceInfo() {
 
 //---------------------------------------------------------------------------funcion de enviode Datos Boton RF_Boton.-----------------------
 void publish_Boton_Data(){
+  sent++;
   if (client.publish(publishTopic, Boton_Data_Json.Evento_Boton(ISO8601, identificador_ID_Evento_Boton))) {
     Serial.println(F("enviado data de boton: OK"));
     Verde.Flash(flash_corto);
@@ -750,7 +722,8 @@ boolean publishRF_ID_Lectura() {
   if (OldTagRead != inputString) {
     OldTagRead = inputString;
     Numero_ID_Eventos_Tarjeta ++;
-    String Identificador_ID_Evento_Tarjeta = String (NodeID + "-" + Numero_ID_Eventos_Tarjeta);
+    char Identificador_ID_Evento_Tarjeta[32];
+    snprintf(Identificador_ID_Evento_Tarjeta, sizeof(Identificador_ID_Evento_Tarjeta), "%s-%d", NodeID.c_str(), Numero_ID_Eventos_Tarjeta);
     sent ++;
     if (client.publish(publishTopic, Tarjeta_Data_Json.Evento_Tarjeta(Identificador_ID_Evento_Tarjeta,ISO8601,inputString))) {
       Serial.println(F("enviado data de RFID: OK"));
@@ -789,8 +762,8 @@ void loop() {
         fsm_state = STATE_UPDATE;
       }
 
-      if (millis() - Last_Update_Millis > 60 * 60 * Universal_1_sec_Interval) {
-        Last_Update_Millis = millis(); //Actulizar la ultima hora de envio
+      if (millis() - Last_NTP_Update_Millis > 60 * 60 * Universal_1_sec_Interval) {
+        Last_NTP_Update_Millis = millis(); //Actulizar la ultima hora de sincronizacion NTP
         fsm_state = STATE_UPDATE_TIME;
       }
 
@@ -861,15 +834,23 @@ void loop() {
       // Verificar la hora
       CheckTime();
       publishRF_ID_Manejo();
+      fsm_state = STATE_IDLE;
     break;
 
     case STATE_UPDATE_TIME:
       Serial.println(F("NTP_CLIENT"));
-      timeClient.update();
-      while (NTP_response == false) {
-        setSyncProvider(NTP_ready);                                                          //iniciamos la mensajeria de UDP para consultar la hora en el servicio de NTP remoto (el servidor se configura en
-        delay(Universal_1_sec_Interval);
-      }                                                    //Cuando fue actualizada la hora del reloj
+      pTimeClient->update();
+      {
+        int ntpRetry = 0;
+        while (NTP_response == false && ntpRetry < 5) {
+          setSyncProvider(NTP_ready);                                                        //iniciamos la mensajeria de UDP para consultar la hora en el servicio de NTP remoto
+          delay(Universal_1_sec_Interval);
+          ntpRetry++;
+        }
+        if (!NTP_response) {
+          Serial.println(F("NTP sync failed after 5 attempts, continuing..."));
+        }
+      }
       NTP_response = false;
       fsm_state = STATE_IDLE;
     break;

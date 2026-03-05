@@ -1,46 +1,136 @@
+# CIAM Touch RFID Button v3
 
-This directory is intended for project specific (private) libraries.
-PlatformIO will compile them to static libraries and link into executable file.
+IoT device firmware for an ESP8266-based (WeMos D1 mini) RFID and capacitive touch button reader that publishes events to a Flatbox cloud platform via MQTT.
 
-The source code of each library should be placed in a an own separate directory
-("lib/your_library_name/[here are source files]").
+**Firmware Version:** V5.00 | **Hardware Version:** V3.00
 
-For example, see a structure of the following two libraries `Foo` and `Bar`:
+## Features
 
-|--lib
-|  |
-|  |--Bar
-|  |  |--docs
-|  |  |--examples
-|  |  |--src
-|  |     |- Bar.c
-|  |     |- Bar.h
-|  |  |- library.json (optional, custom build options, etc) https://docs.platformio.org/page/librarymanager/config.html
-|  |
-|  |--Foo
-|  |  |- Foo.c
-|  |  |- Foo.h
-|  |
-|  |- README --> THIS FILE
-|
-|- platformio.ini
-|--src
-   |- main.c
+- RFID card reading via SoftwareSerial (9600 baud)
+- Capacitive touch button detection
+- MQTT event publishing to Flatbox IoT platform (JSON format)
+- WiFi configuration portal via WiFiManager (on-demand)
+- OTA (Over-the-Air) firmware updates
+- NTP time synchronization
+- RGB LED and piezo buzzer feedback
+- Device health monitoring (WiFi RSSI, message counters, battery voltage)
+- Automatic restart on persistent MQTT failures (150 threshold)
+- SPIFFS-based persistent configuration storage
 
-and a contents of `src/main.c`:
+## Hardware
+
+| Pin | Function         | Component             |
+|-----|------------------|-----------------------|
+| D0  | Touch Button     | Capacitive Touch Pad  |
+| D2  | RFID TX          | RFID Reader (SSerial) |
+| D3  | RFID RX          | RFID Reader (SSerial) |
+| D4  | RGB Purple       | RGB LED               |
+| D5  | Buzzer           | Piezo Buzzer          |
+| D6  | RGB Blue/White   | RGB LED               |
+| D7  | RGB Green/White  | RGB LED               |
+| D8  | RGB Red/White    | RGB LED               |
+| A0  | Battery Voltage  | Battery Monitor       |
+
+## Project Structure
+
 ```
-#include <Foo.h>
-#include <Bar.h>
+├── include/
+│   └── Settings.h              # Device config, MQTT topics, credentials, thresholds
+├── lib/
+│   ├── Buzzer/src/             # BTN_Bzzr - piezo buzzer control
+│   ├── Flatbox_publish/src/    # flatbox - MQTT JSON payload formatting
+│   ├── NTP_Client/src/         # NTPClient - UDP time synchronization
+│   ├── RGB/src/                # BlinkRGB / BlinkColor - LED control
+│   ├── TimeESP/src/            # TimeLibEsp - date/time management
+│   └── TouchBtn/src/           # TouchPadButton - capacitive input
+├── src/
+│   └── main.cpp                # Application entry point and FSM logic
+└── platformio.ini              # Build configuration (espressif8266, d1_mini)
+```
 
-int main (void)
+## Finite State Machine
+
+The firmware runs a state machine with the following states:
+
+| State                       | Description                                       |
+|-----------------------------|---------------------------------------------------|
+| IDLE (0)                    | Default - listening for button press or RFID read |
+| TRANSMIT_BOTON_DATA (1)    | Publishing button press event via MQTT            |
+| TRANSMIT_CARD_DATA (2)     | Publishing RFID card read event via MQTT          |
+| UPDATE (3)                  | Periodic device info check                        |
+| TRANSMIT_ALARM_UPDATE (4)  | Sending low WiFi signal alarm                     |
+| TRANSMIT_DEVICE_UPDATE (5) | Sending device management data                    |
+| UPDATE_TIME (6)             | NTP time resynchronization                        |
+| RDY_TO_UPDATE_OTA (7)      | OTA firmware update mode                          |
+
+## MQTT Communication
+
+- **Broker:** Configurable (default: `adnode.flatbox.io:1883`)
+- **Auth:** Username + token-based
+- **Publish topic:** `iot-2/evt/status/fmt/json`
+- **Subscribe topics:** Device management, response, update, and reboot channels
+
+### Event Payload Example
+
+```json
 {
-  ...
+  "d": {
+    "botondata": {
+      "ChipID": "device_id",
+      "IDEventoBoton": "CIAM-1",
+      "Tstamp": "2026-03-04T12:00:00"
+    }
+  }
 }
-
 ```
 
-PlatformIO Library Dependency Finder will find automatically dependent
-libraries scanning project source files.
+## Configuration (SPIFFS)
 
-More information about PlatformIO Library Dependency Finder
-- https://docs.platformio.org/page/librarymanager/ldf.html
+Stored as `/config.json` on the device flash:
+
+| Parameter             | Default              |
+|-----------------------|----------------------|
+| MQTT_Server           | adnode.flatbox.io    |
+| MQTT_Port             | 1883                 |
+| MQTT_User             | demo                 |
+| MQTT_Password         | demo                 |
+| NTPClient_SERVER      | time-a-g.nist.gov    |
+| NTPClient_interval    | 60000 (ms)           |
+
+## Startup Behavior
+
+1. Load config from SPIFFS
+2. **First 2-second window:** Hold button to enter WiFi configuration portal
+3. **Second 2-second window:** Hold button to enter OTA update mode
+4. Otherwise: Auto-connect WiFi, sync NTP, connect MQTT, enter IDLE state
+
+## Build
+
+Requires [PlatformIO](https://platformio.org/).
+
+```bash
+# Build
+pio run
+
+# Upload via serial
+pio run --target upload
+
+# Monitor serial output
+pio device monitor -b 115200
+```
+
+## Dependencies
+
+- ESP8266WiFi / WiFiUdp
+- WiFiManager
+- PubSubClient (MQTT)
+- ArduinoJson
+- ArduinoOTA
+- ESP8266WebServer / ESP8266mDNS / DNSServer
+- SPIFFS (FS)
+
+## Known Limitations
+
+- Battery voltage on A0 is currently hardcoded to 4.2V (not actively read)
+- NTP synchronization can be slow on startup
+- Maximum MQTT payload buffer: 300 bytes
