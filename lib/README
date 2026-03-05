@@ -170,6 +170,7 @@ Stored as `/config.json` on the device flash:
 | MQTT_Password         | demo                 |
 | NTPClient_SERVER      | time-a-g.nist.gov    |
 | NTPClient_interval    | 60000 (ms)           |
+| Device_ID             | CIAM                 |
 
 ## Startup Behavior
 
@@ -290,6 +291,13 @@ Pre-release blocker fixes:
 - **BLOCKER FIX:** Added `ArduinoOTA.setPassword(password_OTA)` in `BOOT_TO_OTA()` -- OTA was previously open with no authentication
 - **HIGH FIX:** NTP startup `while` loop could hang forever if NTP server was unreachable. Capped at 5 retries with serial progress output, then continues without time sync.
 - **HIGH FIX:** `Flatbox_Publish` `serializeJson()` calls had no overflow detection -- if JSON exceeded 300-byte buffers, payload would be silently truncated and MQTT broker would receive invalid JSON. Added return-value checks with serial warnings on all 3 serialization methods.
+
+Low-priority fixes:
+
+- **BUG FIX:** `tagID[DataLenght]` was 10 bytes but `readTag()` wrote up to index 12 (13-byte RFID frame). Added `RFID_FRAME_SIZE` (13) constant and resized `tagID[]` to match.
+- Added RFID frame validation in `readTag()` -- checks STX (0x02) at byte 0 and ETX (0x03) at byte 12. Discards invalid frames from noisy serial line before processing.
+- Changed `FirmwareVersion` / `HardwareVersion` from `String` to `const char[]` in Settings.h (saves ~56 bytes heap)
+- Moved `DEVICE_ID` from compile-time `#define` in Settings.h to runtime-configurable field in LittleFS `config.json`. Now editable via WiFiManager portal. Default remains "CIAM" for backwards compatibility.
 
 Code quality:
 

@@ -104,7 +104,7 @@ Open serial monitor at **115200 baud** before starting each test.
 
 | Step | Action | Expected Serial Output | LED | Buzzer | Next State |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Present RFID card to reader | `RFID CARD ID IS: <card_id>` | Green flash (short) | Short beep | TRANSMIT_CARD_DATA (2) |
+| 1 | Present RFID card to reader | Frame validated (STX/ETX check), then `RFID CARD ID IS: <card_id>` | Green flash (short) | Short beep | TRANSMIT_CARD_DATA (2) |
 | 2 | FSM enters state 2 | `CARD DATA SENT` | -- | -- | -- |
 | 3 | MQTT connection check | (if disconnected: `Attempting MQTT connection...` `connected`) | White flash (if reconnecting) | Short beep (if reconnecting) | -- |
 | 4 | CheckTime() runs | (if time not synced: `Time not Sync, Syncronizing time`) | -- | -- | -- |
@@ -145,6 +145,18 @@ Open serial monitor at **115200 baud** before starting each test.
 | 3 | Normal card publish flow | Same as Flow 4 steps 2-6 | -- | -- | IDLE (0) |
 
 **PASS criteria:** After 5s cooldown, same card is accepted as a new read.
+
+---
+
+## Flow 6b: IDLE -- RFID Invalid Frame (noise rejection)
+
+**Precondition:** Device in IDLE state. RFID reader sends garbled/noisy data (no proper STX/ETX framing).
+
+| Step | Action | Expected Serial Output | LED | Buzzer | Next State |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Noisy data arrives on RFID serial | `RFID: invalid frame, discarding` | NO flash | NO beep | Stays IDLE (0) |
+
+**PASS criteria:** No state transition. No LED. No buzzer. No MQTT publish. Frame discarded silently with serial warning. Buffer cleared.
 
 ---
 
@@ -385,6 +397,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | 4 | Card Read (new) | Present new RFID card | Green flash, beep, JSON published | [ ] |
 | 5 | Card Read (duplicate) | Same card within 5s | "Duplicate read, ignoring", NO flash/beep | [ ] |
 | 6 | Card Read (after cooldown) | Same card after > 5s | Accepted as new read | [ ] |
+| 6b | Invalid RFID Frame | Noisy serial data | "RFID: invalid frame, discarding", NO flash/beep | [ ] |
 | 7 | Button Press | Touch button | Blue flash, beep, JSON published | [ ] |
 | 8 | Priority: Card vs Button | Both at same time | Card wins, button deferred to next loop | [ ] |
 | 9 | 30-min Update (normal) | Timer expires, RSSI OK | Msg="on", published to manageTopic | [ ] |

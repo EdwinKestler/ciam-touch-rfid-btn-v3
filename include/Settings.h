@@ -11,13 +11,12 @@ const char* password_OTA = "FLATB0X_OTA";
 //--------------------------------------------------------------------------------------------------//Parametros de crecenciales para conexion a servicio de MQTT
 #define ORG "FLATBOX"
 #define DEVICE_TYPE "AC_WIFI_RFID_BTN"
-#define DEVICE_ID "CIAM"
 //--------------------------------------------------------------------------------------------------// Parametros de configuracion de Hora
 const int timeZone = -6;                                                                            // Eastern central Time (USA)
 
 //--------------------------------------------------------------------------------------------------//Parametros de Version de Cambios
-String FirmwareVersion = "V5.00";                                                                   //read in chage history
-String HardwareVersion = "V3.00";                                                                   //read in chage history
+const char FirmwareVersion[] = "V5.00";                                                               //read in chage history
+const char HardwareVersion[] = "V3.00";                                                               //read in chage history
 //--------------------------------------------------------------------------------------------------//Topicos para transmision de datos a la nube.
 char  publishTopic[]  =   "iot-2/evt/status/fmt/json";
 char  responseTopic[] =   "iotdm-1/response/";

@@ -34,6 +34,7 @@ struct BtnConf {
     char  MQTT_Password[24];                                                                         //Variable de Contraseña para conexion con servidor de MQTT
     char NTPClient_SERVER[24] = "time-a-g.nist.gov";                                                //Variable de Direccion de Servidor de NTP
     char  NTPClient_interval [6];                                                                    //Variable de intervalo de sincronizacion de hora por medio de NTP
+    char  Device_ID[16] = "CIAM";                                                                    //Variable de identificacion de despliegue/sitio
 };
 
 BtnConf btnconfig;                                                                                  //Objeto de estructura de configuracion
@@ -48,7 +49,7 @@ long LecturaTreshold = 5000;                                                    
 //--------------------------------------------------------------------------------------------------Variables Propias del CORE ESP8266 Para la administracion del Modulo
 String NodeID = String(ESP.getChipId());                                                            //Variable Global que contiene la identidad del nodo (ChipID) o numero unico
 //--------------------------------------------------------------------------------------------------definicion de parametros del Wifi
-char clientId[] = "d:" ORG ":" DEVICE_TYPE ":" DEVICE_ID;                                           //Variable de Identificacion de Cliente para servicio de MQTT Bluemix
+char clientId[50];                                                                                    //Variable de Identificacion de Cliente para servicio de MQTT, built at runtime from config
 String  Smacaddrs = "00:00:00:00:00:00";                                                            //Variable apara almacenar la MAC Address asignada por el servicio de Wifi
 String  Sipaddrs  = "000.000.000.000";                                                              //Variable para almacenar la direccion IP asignada por el servicio de wifi
 //--------------------------------------------------------------------------------------------------definicon de variables para NTP
@@ -84,12 +85,13 @@ bool shouldSaveConfig = false;
 int failed, sent, published;                                                                        //Variables de conteo de mensajes enviados, fallidos y publicados
 //--------------------------------------------------------------------------------------------------//variables Globales de lectura de codigos RFID
 #define DataLenght 10
+#define RFID_FRAME_SIZE 13
 #define TypesofCards 13
 
 byte incomingdata;
 String inputString;
 char SearchSValue;
-byte tagID[DataLenght];
+byte tagID[RFID_FRAME_SIZE];
 String OldTagRead = "1";                                                                            //VAriable para guardar la ultima tag leida y evitar lecturas consecutivas
 char charBuff[DataLenght];
 boolean readedTag = false;
@@ -190,6 +192,7 @@ void Read_Configuration_JSON(){
         strlcpy(btnconfig.NTPClient_SERVER, doc["NTPClient_SERVER"] | "time-a-g.nist.gov",
                 sizeof(btnconfig.NTPClient_SERVER));                                                //Parametro de Configuracion del Servidor de NTP
         strlcpy(btnconfig.NTPClient_interval, doc["NTPClient_interval"] | "60000", sizeof(btnconfig.NTPClient_interval));                                  //Parametro de Configuracion del Intervalo de actulizacion de hora por medio de consulta al Servicio de NTP
+        strlcpy(btnconfig.Device_ID, doc["Device_ID"] | "CIAM", sizeof(btnconfig.Device_ID));         //Parametro de Identificacion de despliegue/sitio
       }
       configFile.close();
     }
@@ -200,7 +203,8 @@ void Read_Configuration_JSON(){
 //--------------------------------------------------------------------------------------------------//Funcion auxiliar para copiar parametros de WiFiManager a btnconfig y guardar en LittleFS
 void copyWifiManagerParams(
     WiFiManagerParameter &srv, WiFiManagerParameter &port, WiFiManagerParameter &usr,
-    WiFiManagerParameter &pwd, WiFiManagerParameter &ntp_srv, WiFiManagerParameter &ntp_int)
+    WiFiManagerParameter &pwd, WiFiManagerParameter &ntp_srv, WiFiManagerParameter &ntp_int,
+    WiFiManagerParameter &dev_id)
 {
   strlcpy(btnconfig.MQTT_Server, srv.getValue(), sizeof(btnconfig.MQTT_Server));
   strlcpy(btnconfig.MQTT_Port, port.getValue(), sizeof(btnconfig.MQTT_Port));
@@ -208,6 +212,7 @@ void copyWifiManagerParams(
   strlcpy(btnconfig.MQTT_Password, pwd.getValue(), sizeof(btnconfig.MQTT_Password));
   strlcpy(btnconfig.NTPClient_SERVER, ntp_srv.getValue(), sizeof(btnconfig.NTPClient_SERVER));
   strlcpy(btnconfig.NTPClient_interval, ntp_int.getValue(), sizeof(btnconfig.NTPClient_interval));
+  strlcpy(btnconfig.Device_ID, dev_id.getValue(), sizeof(btnconfig.Device_ID));
 
   if(shouldSaveConfig){
     Serial.println(F("Guardando Cambios de Configuracion"));
@@ -218,6 +223,7 @@ void copyWifiManagerParams(
     doc["MQTT_Password"] = btnconfig.MQTT_Password;
     doc["NTPClient_SERVER"] = btnconfig.NTPClient_SERVER;
     doc["NTPClient_interval"] = btnconfig.NTPClient_interval;
+    doc["Device_ID"] = btnconfig.Device_ID;
 
     File configFile = LittleFS.open("/config.json", "w");
     if(!configFile){
@@ -233,7 +239,8 @@ void copyWifiManagerParams(
 //--------------------------------------------------------------------------------------------------//Funcion auxiliar para preparar WiFiManager con parametros custom
 void setupWifiManagerParams(WiFiManager &wm,
     WiFiManagerParameter &srv, WiFiManagerParameter &port, WiFiManagerParameter &usr,
-    WiFiManagerParameter &pwd, WiFiManagerParameter &ntp_srv, WiFiManagerParameter &ntp_int)
+    WiFiManagerParameter &pwd, WiFiManagerParameter &ntp_srv, WiFiManagerParameter &ntp_int,
+    WiFiManagerParameter &dev_id)
 {
   wm.setSaveConfigCallback(saveConfigCallback);
   wm.addParameter(&srv);
@@ -242,6 +249,7 @@ void setupWifiManagerParams(WiFiManager &wm,
   wm.addParameter(&pwd);
   wm.addParameter(&ntp_int);
   wm.addParameter(&ntp_srv);
+  wm.addParameter(&dev_id);
 }
 //--------------------------------------------------------------------------------------------------//Boot to on demand WifiManager
 void BOOT_TO_On_Demand_Wifi_Manager(){
@@ -251,10 +259,11 @@ void BOOT_TO_On_Demand_Wifi_Manager(){
   WiFiManagerParameter custom_mqtt_pass("password","MQTT_Password",btnconfig.MQTT_Password,64);
   WiFiManagerParameter custom_NTPClient_SERVER("NTPServer","NTPClient_SERVER",btnconfig.NTPClient_SERVER,64);
   WiFiManagerParameter custom_NTPClient_interval("NTPInterval","NTPClient_interval",btnconfig.NTPClient_interval,6);
+  WiFiManagerParameter custom_Device_ID("deviceid","Device_ID",btnconfig.Device_ID,16);
 
   WiFiManager wifiManager;
   setupWifiManagerParams(wifiManager, custom_mqtt_server, custom_mqtt_port, custom_mqtt_user,
-                         custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval);
+                         custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval, custom_Device_ID);
 
   Serial.println(F("Empezando Configuracion de WIFI Bajo Demanda"));
   Purpura.COn();
@@ -266,7 +275,7 @@ void BOOT_TO_On_Demand_Wifi_Manager(){
   }
 
   copyWifiManagerParams(custom_mqtt_server, custom_mqtt_port, custom_mqtt_user,
-                        custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval);
+                        custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval, custom_Device_ID);
 }
 //--------------------------------------------------------------------------------------------------//Boot to auto WifiManager
 void BOOT_TO_Wifi_Manager(){
@@ -276,10 +285,11 @@ void BOOT_TO_Wifi_Manager(){
   WiFiManagerParameter custom_mqtt_pass("password","MQTT_Password",btnconfig.MQTT_Password,64);
   WiFiManagerParameter custom_NTPClient_SERVER("NTPServer","NTPClient_SERVER",btnconfig.NTPClient_SERVER,64);
   WiFiManagerParameter custom_NTPClient_interval("NTPInterval","NTPClient_interval",btnconfig.NTPClient_interval,6);
+  WiFiManagerParameter custom_Device_ID("deviceid","Device_ID",btnconfig.Device_ID,16);
 
   WiFiManager wifiManager;
   setupWifiManagerParams(wifiManager, custom_mqtt_server, custom_mqtt_port, custom_mqtt_user,
-                         custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval);
+                         custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval, custom_Device_ID);
 
   Serial.println(F("Empezando Configuracion de WIFI en Automatico"));
   Purpura.COn();
@@ -294,7 +304,7 @@ void BOOT_TO_Wifi_Manager(){
   }
 
   copyWifiManagerParams(custom_mqtt_server, custom_mqtt_port, custom_mqtt_user,
-                        custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval);
+                        custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval, custom_Device_ID);
 }
 //--------------------------------------------------------------------------------------------------//funcion donde se define el inicio a Actulizacion por OTA
 void BOOT_TO_OTA() {
@@ -479,6 +489,8 @@ void setup() {
   RFIDReader.begin(9600);                                                                           //inciamos el puerto Serial por Software a la velocidad indicada (def: 9600)
   //leemos los parametros de configuracion almacenados en la memoria en el JSON de configuracion
   Read_Configuration_JSON();
+  //Construir clientId a partir de config cargada de LittleFS
+  snprintf(clientId, sizeof(clientId), "d:%s:%s:%s", ORG, DEVICE_TYPE, btnconfig.Device_ID);
   //Inicializar el cliente NTP con la configuracion cargada de LittleFS
   pTimeClient = new NTPClient(btnconfig.NTPClient_SERVER, 0, atoi(btnconfig.NTPClient_interval));
   //Configutacion del Wifi
@@ -603,7 +615,7 @@ void CheckTime(){ //digital clock display of the time
 //-----------------------------------------------------------------------------------Limpiando el Buffer donde se almacena los tarjetas
 void clearBufferArray() {             // function to clear buffer array
   inputString = "";
-  for (unsigned int i = 0; i < DataLenght; i++) {
+  for (unsigned int i = 0; i < RFID_FRAME_SIZE; i++) {
     tagID[i] = 0; // clear all index of array with command NULL
   }
 }
@@ -623,6 +635,12 @@ void readTag() {
       count++ ;
     }
     count = 0;
+    // Validate RFID frame: must have extracted card ID bytes (positions 4-7)
+    if (inputString.length() == 0) {
+      Serial.println(F("RFID: invalid frame, discarding"));
+      clearBufferArray();
+      return;
+    }
     Serial.print(F("RFID CARD ID IS: "));
     Serial.println(inputString);
     // Reject duplicate consecutive reads early — avoid unnecessary state transition and feedback
