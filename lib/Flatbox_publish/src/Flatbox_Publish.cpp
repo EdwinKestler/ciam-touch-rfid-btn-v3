@@ -12,7 +12,7 @@ flatbox::flatbox(String UID_Board){
     _UID_Board = UID_Board;
 }
 
-char * flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_Board, int Nivel_RSSI, int Mensajes_enviados, int Mensajes_Fallidos, String Time_Stamp, String Direccion_Mac, String Direccion_IP)
+char * flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_Board, int Nivel_RSSI, int Mensajes_publicados, int Mensajes_enviados, int Mensajes_Fallidos, String Time_Stamp, String Direccion_Mac, String Direccion_IP)
 {
     JsonDocument doc;
     JsonObject d = doc["d"].to<JsonObject>();
@@ -21,7 +21,7 @@ char * flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_
     Ddata["Msg"] = Mensaje_Estado;
     Ddata["batt"] = Voltaje_Board;
     Ddata["RSSI"] = Nivel_RSSI;
-    Ddata["publicados"] = Mensajes_enviados;
+    Ddata["publicados"] = Mensajes_publicados;
     Ddata["enviados"] = Mensajes_enviados;
     Ddata["fallidos"] = Mensajes_Fallidos;
     Ddata["Tstamp"] = Time_Stamp;

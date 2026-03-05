@@ -21,6 +21,7 @@
 
 #include "NTP_Client.h"
 
+/*
 NTPClient::NTPClient(int timeOffset) {
   this->_timeOffset     = timeOffset;
 }
@@ -33,6 +34,7 @@ NTPClient::NTPClient(const char* poolServerName, int timeOffset) {
   this->_timeOffset     = timeOffset;
   this->_poolServerName = poolServerName;
 }
+*/
 
 NTPClient::NTPClient(const char* poolServerName, int timeOffset, int updateInterval) {
   this->_timeOffset     = timeOffset;
@@ -96,6 +98,7 @@ unsigned long NTPClient::getRawTime() {
          ((millis() - this->_lastUpdate) / 1000); // Time since last update
 }
 
+/*
 String NTPClient::getHours() {
   return String((this->getRawTime()  % 86400L) / 3600);
 }
@@ -120,6 +123,7 @@ String NTPClient::getFormattedTime() {
 
   return hoursStr + ":" + minuteStr + ":" + secondStr;
 }
+*/
 
 void NTPClient::sendNTPPacket(IPAddress ip) {
   // set all bytes in the buffer to 0

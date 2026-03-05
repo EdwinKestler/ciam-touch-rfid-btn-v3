@@ -16,6 +16,7 @@ void BlinkRGB::This_RGB_State(int RGB_State){
     digitalWrite(_pin, _RGB_State);
 }
 
+/*
 void BlinkRGB::Change_RGB_State(){
     int current_RGB_State = digitalRead(_pin);
     if(current_RGB_State == 1 ){
@@ -24,6 +25,7 @@ void BlinkRGB::Change_RGB_State(){
         digitalWrite(_pin, HIGH);
     }
 }
+*/
 
 void BlinkRGB::Flash(unsigned long flash_interval) {
     _flash_interval = flash_interval;
@@ -38,7 +40,7 @@ BlinkColor::BlinkColor(int pin0, int pin1,int pin2) {
     pinMode(pin2, OUTPUT);
     _pin0 = pin0;
     _pin1 = pin1;
-    _pin2 = pin1;
+    _pin2 = pin2;
 }
 
 void BlinkColor::COn() {

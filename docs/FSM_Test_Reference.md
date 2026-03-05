@@ -30,11 +30,42 @@ Open serial monitor at **115200 baud** before starting each test.
 | 3 | Wait 2s (don't press button) | -- | Red OFF | -- | -- |
 | 4 | WiFi auto-connects | `Wifi conectado, Direccion de IP Asignado: x.x.x.x` | -- | -- | -- |
 | 5 | NTP sync | `servidor de NTP: <server>` | -- | -- | -- |
-| 6 | MQTT connect | `Time Sync, Connecting to mqtt sevrer` then `Mqtt Connection Done!, sending Device Data` | -- | -- | -- |
+| 6 | MQTT connect (up to 4 attempts) | `Conectando al servidor MQTT: <server>`, `MQTT attempt #1`, `MQTT connected` then `Mqtt Connection Done!, sending Device Data` | -- | -- | -- |
 | 7 | Subscribe topics | `se ha subscrito al Topico de respuestas` / `...Reincio Remoto` / `...Actulizaciones Remotas` | -- | -- | -- |
 | 8 | Device info summary | `CHIPID:`, `HARDWARE:`, `FIRMWARE:`, `Servidor de NTP:`, `Servidor de MQTT:`, `Puerto:`, `Client ID:` | White OFF | -- | IDLE (0) |
 
 **PASS criteria:** All serial messages appear in order. Device enters IDLE. No restart loops.
+
+---
+
+## Flow 1b: Startup -- MQTT Connect Failure (WiFiManager fallback)
+
+**Precondition:** Device powered off, WiFi configured, MQTT broker **unreachable** (wrong server/port/credentials or firewall blocking port 1883).
+
+| Step | Action | Expected Serial Output | LED | Buzzer | Next State |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Power on, WiFi connects, NTP syncs | Normal startup messages up to `Time Sync, Connecting to mqtt sevrer` | -- | -- | -- |
+| 2 | MQTT attempt #1 | `Conectando al servidor MQTT: <server>`, `MQTT attempt #1`, `failed, rc=<code>` | White flash (short) | -- | -- |
+| 3 | MQTT attempt #2 | `MQTT attempt #2`, `failed, rc=<code>` | White flash (short) | -- | -- |
+| 4 | MQTT attempt #3 | `MQTT attempt #3`, `failed, rc=<code>` | White flash (short) | -- | -- |
+| 5 | MQTT attempt #4 | `MQTT attempt #4`, `failed, rc=<code>` | White flash (short) | -- | -- |
+| 6 | WiFiManager fallback | `MQTT connect failed after 4 attempts, opening WiFiManager...` | Purple ON | Medium beep x2 | WiFi portal active |
+| 7 | Connect to `flatwifi` AP, correct MQTT settings | WiFiManager portal logs | -- | -- | -- |
+| 8 | Save and restart | -- | -- | -- | ESP.restart() |
+
+**PubSubClient return codes (rc= value):**
+
+| rc | Meaning |
+| --- | --- |
+| -4 | Connection timeout |
+| -3 | Connection lost |
+| -2 | Connect failed (network unreachable) |
+| -1 | Disconnected |
+| 1 | Bad protocol |
+| 4 | Bad credentials |
+| 5 | Not authorized |
+
+**PASS criteria:** Exactly 4 attempts logged with rc= codes. WiFiManager config portal opens after 4th failure. After saving corrected MQTT settings, device restarts and connects successfully (Flow 1).
 
 ---
 
@@ -274,9 +305,9 @@ Open serial monitor at **115200 baud** before starting each test.
 
 ---
 
-## Flow 15: MQTT Reconnect (within FSM states)
+## Flow 15: MQTT Reconnect (runtime, within FSM states)
 
-**Precondition:** Device in any TRANSMIT state. MQTT client disconnected.
+**Precondition:** Device in any TRANSMIT state. MQTT client disconnected. This is the **runtime** reconnect via `MQTTreconnect()`, NOT the startup connect (see Flow 1b).
 
 | Step | Action | Expected Serial Output | LED | Buzzer | Next State |
 | --- | --- | --- | --- | --- | --- |
@@ -286,7 +317,9 @@ Open serial monitor at **115200 baud** before starting each test.
 | 3 | Wait 3 seconds, retry (up to 3 total) | `Attempting MQTT connection...` | White flash | Short beep | -- |
 | 4 | All 3 retries fail | `MQTT reconnect failed after 3 attempts` | -- | -- | Continues (publish will fail) |
 
-**PASS criteria:** Maximum 3 attempts per call (~9 seconds max blocking). Device does NOT restart on reconnect failure (unlike old behavior). Publish attempt proceeds even if reconnect fails (publish will increment `failed` counter).
+**Note:** Runtime reconnect does NOT open WiFiManager (unlike startup connect in Flow 1b). Instead, failed publishes increment the `failed` counter. When `failed` reaches 150 (FAILTRESHOLD), the device restarts (Flow 14), which then triggers the startup connect with WiFiManager fallback if the broker is still unreachable.
+
+**PASS criteria:** Maximum 3 attempts per call (~9 seconds max blocking). Device does NOT restart on reconnect failure. Publish attempt proceeds even if reconnect fails (publish will increment `failed` counter).
 
 ---
 
@@ -346,6 +379,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | # | Flow | Trigger | Key Verification | Pass? |
 | --- | --- | --- | --- | --- |
 | 1 | Normal Startup | Power on (no button) | Serial summary, enters IDLE | [ ] |
+| 1b | MQTT Connect Failure | Broker unreachable at startup | 4 retries, WiFiManager fallback, rc= codes logged | [ ] |
 | 2 | WiFi Config Portal | Button in 1st 2s | WiFiManager AP accessible | [ ] |
 | 3 | OTA Update Mode | Button in 2nd 2s | `RFID_OTA` AP, stays in state 7 | [ ] |
 | 4 | Card Read (new) | Present new RFID card | Green flash, beep, JSON published | [ ] |

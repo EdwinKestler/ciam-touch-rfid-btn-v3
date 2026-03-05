@@ -14,6 +14,6 @@ class TouchPadButton{
         bool check();
     private:
         int _pin;
-        int _prev_Button_State;        
+        int _prev_Button_State = LOW;
 };
 #endif

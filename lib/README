@@ -14,6 +14,7 @@ IoT device firmware for an ESP8266-based (WeMos D1 mini) RFID and capacitive tou
 - NTP time synchronization
 - RGB LED and piezo buzzer feedback
 - Device health monitoring (WiFi RSSI, message counters, battery voltage)
+- MQTT connect safeguard: 4 retries then WiFiManager fallback for config correction
 - Automatic restart on persistent MQTT failures (150 threshold)
 - LittleFS-based persistent configuration storage
 
@@ -175,7 +176,7 @@ Stored as `/config.json` on the device flash:
 1. Load config from LittleFS
 2. **First 2-second window:** Hold button to enter WiFi configuration portal
 3. **Second 2-second window:** Hold button to enter OTA update mode
-4. Otherwise: Auto-connect WiFi, sync NTP, connect MQTT, enter IDLE state
+4. Otherwise: Auto-connect WiFi, sync NTP, connect MQTT (4 retries, falls back to WiFiManager on failure), enter IDLE state
 
 ## Build
 
@@ -240,6 +241,35 @@ FSM fixes (round 2):
 - Merged `STATE_TRANSMIT_ALARM_UPDATE` into `STATE_TRANSMIT_DEVICE_UPDATE` (identical logic, `msg` field carries the distinction)
 - Unified RSSI alarm threshold to `RSSI_LOW_THRESHOLD` constant in Settings.h (was -85 in `checkalarms()` vs -75 in `updateDeviceInfo()`)
 - `failed` counter now halves on success instead of zeroing (prevents masking persistent degradation)
+
+Library bug fixes:
+
+- **BUG FIX:** `BlinkColor` constructor stored `pin1` into `_pin2` (third LED channel never worked)
+- **BUG FIX:** `TouchPadButton._prev_Button_State` was uninitialized (could miss first button press)
+- **BUG FIX:** `Flatbox_Publish.Administracion_Dispositivo` had duplicate JSON field (`publicados` and `enviados` both mapped to same value). Added `sent` parameter to differentiate published vs sent counters.
+- Consolidated 3 `flatbox` instances into 1 (saved 1,828 bytes RAM -- 43.7% -> 41.5%)
+- Commented out unused methods across all libraries to reduce flash/RAM footprint:
+  - Buzzer: `This_Bzzr_State()`, `Change_Bzzr_State()`
+  - RGB: `BlinkRGB::Change_RGB_State()`
+  - NTP_Client: `getHours()`, `getMinutes()`, `getSeconds()`, `getFormattedTime()`, 3 unused constructors
+  - TimeESP: `hourFormat12()`, `isAM()`, `isPM()`, `adjustTime()`, `setSyncInterval()`, entire `DateStrings.cpp`
+- Fixed broken macros in TimeLibEsp.h (`minutesToTime_t`, `hoursToTime_t`, etc. had double-paren syntax)
+
+TimeESP library rewrite:
+
+- Rewrote lib/TimeESP from 4 files (553 lines) down to 2 files (155 lines)
+- Deleted `TimeEsp.h` (redirect header), `DateStrings.cpp` (fully commented out)
+- Deleted legacy files: `examples/` directory (11 sketches), `Readme.txt`, `keywords.txt`, `library.json`, `library.properties`
+- Kept identical API surface -- zero changes to main.cpp required
+- New `TimeLibEsp.h`: types, constants, and only the function declarations used by the project
+- New `TimeESP.cpp`: clean implementations with no commented-out blocks
+
+MQTT connection safeguard:
+
+- `mqttConnect()` reduced from 30 retries + blind `ESP.restart()` to 4 retries + WiFiManager fallback
+- On 4 failed attempts, opens on-demand WiFiManager config portal so user can correct MQTT server/port/credentials
+- After saving new config, device restarts with corrected settings
+- Prints PubSubClient return code (`rc=`) on each failure to aid diagnosis
 
 Code quality:
 

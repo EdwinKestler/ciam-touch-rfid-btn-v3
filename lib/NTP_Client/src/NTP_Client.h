@@ -26,19 +26,18 @@ class NTPClient {
     void          sendNTPPacket(IPAddress _timeServerIP);
 
   public:
-    NTPClient(int timeOffset);
-    NTPClient(const char* poolServerName);
-    NTPClient(const char* poolServerName, int timeOffset);
+    // NTPClient(int timeOffset);                                          // unused
+    // NTPClient(const char* poolServerName);                               // unused
+    // NTPClient(const char* poolServerName, int timeOffset);               // unused
     NTPClient(const char* poolServerName, int timeOffset, int updateInterval);
 
     void begin();
     void update();
     void forceUpdate();
 
-    String getHours();
-    String getMinutes();
-    String getSeconds();
-    String getFormattedTime();
-
+    // String getHours();          // unused
+    // String getMinutes();        // unused
+    // String getSeconds();        // unused
+    // String getFormattedTime();  // unused
     unsigned long getRawTime();
 };

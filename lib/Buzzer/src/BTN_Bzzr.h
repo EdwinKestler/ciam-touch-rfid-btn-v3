@@ -12,8 +12,8 @@ class BTN_Bzzr {
     public:
         BTN_Bzzr(int pin);
         void Beep(unsigned long beep_interval);
-        void This_Bzzr_State(int BZZR_STATE);
-        void Change_Bzzr_State();
+        // void This_Bzzr_State(int BZZR_STATE);  // unused
+        // void Change_Bzzr_State();               // unused
     private:
         int _pin;
         int _Bzzr_State;

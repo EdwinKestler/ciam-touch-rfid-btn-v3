@@ -12,6 +12,7 @@ BTN_Bzzr::BTN_Bzzr(int pin) {
     
 }
 
+/*
 void BTN_Bzzr::This_Bzzr_State(int Bzzr_State){
     _Bzzr_State = Bzzr_State;
     digitalWrite(_pin, _Bzzr_State);
@@ -25,6 +26,7 @@ void BTN_Bzzr::Change_Bzzr_State(){
         digitalWrite(_pin, HIGH);
     }
 }
+*/
 
 void BTN_Bzzr::Beep(unsigned long beep_interval) {
     _beep_interval = beep_interval;

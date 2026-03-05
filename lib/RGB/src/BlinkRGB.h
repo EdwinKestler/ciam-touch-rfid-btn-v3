@@ -13,7 +13,7 @@ class BlinkRGB {
         BlinkRGB(int pin);
         void Flash(unsigned long flash_interval);
         void This_RGB_State(int RGB_STATE);
-        void Change_RGB_State();
+        // void Change_RGB_State();  // unused
     private:
         int _pin;
         int _RGB_State;

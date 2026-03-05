@@ -68,9 +68,7 @@ BlinkRGB Azul (D6);                                                             
 BlinkRGB Verde (D7);                                                                                //definicion del puerto fisico en el board para el led de color Verde
 BlinkRGB Rojo (D8);                                                                                 //definicion del puerto fisico en el board para el led de color Rojo
 //--------------------------------------------------------------------------------------------------//definicion de Topicos de acuerdo a publicacion
-flatbox Boton_Data_Json  (NodeID);
-flatbox Tarjeta_Data_Json(NodeID);
-flatbox Manejo_Data_Json (NodeID);
+flatbox Flatbox_Json(NodeID);  // single instance — each method uses its own internal buffer
 //--------------------------------------------------------------------------------------------------definicion de pines de Boton Touch
 TouchPadButton T_button(D0);                                                                        //definicion del puerto fisico en el board para el boton capacitivo
 int pressed_count = 0;                                                                              //definicion de variable que almacena las veces que ha sido presionado el boton
@@ -182,11 +180,11 @@ void Read_Configuration_JSON(){
         serializeJson(doc, Serial);                                                                       //Imprimir el archivo de configuracion leido al puerto Serial para verificacion
         Serial.println(F("\nparsed json"));                                                         //Mensje serial para indicar que se empieza el parseo del archivo al Json
         strlcpy(btnconfig.MQTT_Server,                                                              // Copiar a <- destino
-                doc["MQTT_Server"] | "adnode.flatbox.io" ,                                                                 // desde el valor <- Archivo
+                doc["MQTT_Server"] | "172.18.98.142" ,                                                                 // desde el valor <- Archivo
                 sizeof( btnconfig.MQTT_Server) );                                                   // <- Capacidad del destino
         strlcpy(btnconfig.MQTT_Port, doc["MQTT_Port"] | "1883", sizeof(btnconfig.MQTT_Port));       //Parametro de Configuracion del puerto del servidor de MQTT
-        strlcpy(btnconfig.MQTT_User, doc["MQTT_User"] | "demo", sizeof(btnconfig.MQTT_User));       //Parametro de Configuracion del Usuario del Servidor de MQTT
-        strlcpy(btnconfig.MQTT_Password, doc["MQTT_Password"] | "demo" , sizeof(btnconfig.MQTT_Password));   //Parametro de Configuracion del Password del Servidor de MQTT
+        strlcpy(btnconfig.MQTT_User, doc["MQTT_User"] | "esp8266", sizeof(btnconfig.MQTT_User));       //Parametro de Configuracion del Usuario del Servidor de MQTT
+        strlcpy(btnconfig.MQTT_Password, doc["MQTT_Password"] | "esp8266" , sizeof(btnconfig.MQTT_Password));   //Parametro de Configuracion del Password del Servidor de MQTT
         strlcpy(btnconfig.NTPClient_SERVER, doc["NTPClient_SERVER"] | "time-a-g.nist.gov",
                 sizeof(btnconfig.NTPClient_SERVER));                                                //Parametro de Configuracion del Servidor de NTP
         strlcpy(btnconfig.NTPClient_interval, doc["NTPClient_interval"] | "60000", sizeof(btnconfig.NTPClient_interval));                                  //Parametro de Configuracion del Intervalo de actulizacion de hora por medio de consulta al Servicio de NTP
@@ -363,24 +361,27 @@ void mqttConnect() {
   //int port_parsed = String(btnconfig.MQTT_Port).toInt();
   client.setServer(btnconfig.MQTT_Server, atoi(btnconfig.MQTT_Port));
   client.setCallback(callback);
-  if (!!!client.connected()) {                                                                      //Verificar si el cliente se encunetra conectado al servicio
-    Serial.print(F("Reconcetando el servidor MQTT: "));                                             //Si no se encuentra conectado imprimir un mensake de error y de reconexion al servicio
-    Serial.println(String(btnconfig.MQTT_Server));                                                  //Imprimir la direccion del servidor a donde se esta intentado conectar
+  if (!client.connected()) {
+    Serial.print(F("Conectando al servidor MQTT: "));
+    Serial.println(btnconfig.MQTT_Server);
     char charBuf[30];
     String CID (clientId + NodeID);
     CID.toCharArray(charBuf, 30);
-    int mqttRetry = 0;
-    while (!!!client.connect(charBuf, btnconfig.MQTT_User,btnconfig.MQTT_Password)) {               //Si no se encuentra conectado al servicio intentar la conexion con las credenciales Clientid, Metodo de autenticacion y el Tokeno password
-      Serial.print(F("."));                                                                         //imprimir una serie de puntos mientras se da la conexion al servicio
-      Blanco.CFlash(flash_corto);
-      mqttRetry++;
-      if (mqttRetry > 30) {
-        Serial.println(F("\nMQTT connect timeout, restarting..."));
-        ESP.restart();
+    for (int retry = 0; retry < 4; retry++) {
+      Serial.print(F("MQTT attempt #"));
+      Serial.println(retry + 1);
+      if (client.connect(charBuf, btnconfig.MQTT_User, btnconfig.MQTT_Password)) {
+        Serial.println(F("MQTT connected"));
+        return;
       }
-      delay(Universal_1_sec_Interval);
+      Serial.print(F("failed, rc="));
+      Serial.println(client.state());
+      Blanco.CFlash(flash_corto);
+      delay(3000);
     }
-    Serial.println();                                                                               //dejar un espacio en la terminal para diferenciar los mensajes.
+    Serial.println(F("MQTT connect failed after 4 attempts, opening WiFiManager..."));
+    BOOT_TO_On_Demand_Wifi_Manager();
+    ESP.restart();
   }
 }
 //----------------------------------------------------------------------Funcion de REConexion a Servicio de MQTT
@@ -642,7 +643,7 @@ void readBtn() {
 //-------- Data de Manejo RF_ID_Manejo. Publish the data to MQTT server, the payload should not be bigger than 45 characters name field and data field counts. --------//
 void publishRF_ID_Manejo () {
   sent++;
-  if (client.publish(manageTopic, Manejo_Data_Json.Administracion_Dispositivo(msg,VBat,WifiSignal,published,failed,ISO8601,Smacaddrs,Sipaddrs))) {
+  if (client.publish(manageTopic, Flatbox_Json.Administracion_Dispositivo(msg,VBat,WifiSignal,published,sent,failed,ISO8601,Smacaddrs,Sipaddrs))) {
     Serial.println(F("enviado data de dispositivo:OK"));
     published ++;
     failed = failed / 2;  // decay instead of reset — masks persistent degradation less
@@ -703,7 +704,7 @@ void updateDeviceInfo() {
 //---------------------------------------------------------------------------funcion de enviode Datos Boton RF_Boton.-----------------------
 void publish_Boton_Data(){
   sent++;
-  if (client.publish(publishTopic, Boton_Data_Json.Evento_Boton(ISO8601, identificador_ID_Evento_Boton))) {
+  if (client.publish(publishTopic, Flatbox_Json.Evento_Boton(ISO8601, identificador_ID_Evento_Boton))) {
     Serial.println(F("enviado data de boton: OK"));
     Verde.Flash(flash_corto);
     alarm.Beep(tono_corto);
@@ -725,7 +726,7 @@ boolean publishRF_ID_Lectura() {
     char Identificador_ID_Evento_Tarjeta[32];
     snprintf(Identificador_ID_Evento_Tarjeta, sizeof(Identificador_ID_Evento_Tarjeta), "%s-%d", NodeID.c_str(), Numero_ID_Eventos_Tarjeta);
     sent ++;
-    if (client.publish(publishTopic, Tarjeta_Data_Json.Evento_Tarjeta(Identificador_ID_Evento_Tarjeta,ISO8601,inputString))) {
+    if (client.publish(publishTopic, Flatbox_Json.Evento_Tarjeta(Identificador_ID_Evento_Tarjeta,ISO8601,inputString))) {
       Serial.println(F("enviado data de RFID: OK"));
       Verde.Flash(flash_corto);
       alarm.Beep(tono_corto);
