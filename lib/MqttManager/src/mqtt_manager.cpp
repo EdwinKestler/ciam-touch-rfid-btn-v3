@@ -196,8 +196,15 @@ static void mqttCallback(char* topic, byte* payload, unsigned int payloadLength)
     handleResponse(payload);
   }
   if (strcmp(rebootTopic, topic) == 0) {
-    Serial.println(F("Reiniciando..."));
-    ESP.reset();
+    JsonDocument rbDoc;
+    if (deserializeJson(rbDoc, (char*)payload) == DeserializationError::Ok
+        && rbDoc["k"].is<const char*>()
+        && strcmp(rbDoc["k"], "A5F0") == 0) {
+      Serial.println(F("Reiniciando..."));
+      ESP.reset();
+    } else {
+      Serial.println(F("Reboot: invalid token, ignoring"));
+    }
   }
   if (strcmp(updateTopic, topic) == 0) {
     handleUpdate(payload);

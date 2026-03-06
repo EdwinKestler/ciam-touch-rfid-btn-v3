@@ -117,11 +117,11 @@ Open serial monitor at **115200 baud** before starting each test.
 
 | Step | Action | Expected Serial Output | LED | Buzzer | Next State |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Present RFID card to reader | Frame validated (non-empty card ID check), then `RFID CARD ID IS: <card_id>` | Green flash (short) | Short beep | TRANSMIT_CARD_DATA (2) |
-| 2 | FSM enters state 2 | `CARD DATA SENT` | -- | -- | -- |
+| 1 | Present RFID card to reader | Frame validated (non-empty card ID check), then `RFID CARD ID IS: <card_id>` | Green flash (short) | Short beep | TRANSMIT_SENSOR_DATA (1) |
+| 2 | FSM enters state 1 | `SENSOR DATA SENT` | -- | -- | -- |
 | 3 | MQTT connection check | (if disconnected: `Attempting MQTT connection...` `connected`) | White flash (if reconnecting) | Short beep (if reconnecting) | -- |
 | 4 | CheckTime() runs | (if time not synced: `Time not Sync, Syncronizing time`) | -- | -- | -- |
-| 5 | publishRF_ID_Lectura() | `publishing Tag data to publishTopic:` then JSON payload | -- | -- | -- |
+| 5 | publishSensorEvent(rfidSensor) | Builds payload via `rfidSensor.buildPayload()` | -- | -- | -- |
 | 6a | Publish SUCCESS | `enviado data de RFID: OK` | Green flash (short) | Short beep | IDLE (0) |
 | 6b | Publish FAIL | `enviado data de RFID: FAILED` | Red flash (short) | -- | IDLE (0) |
 
@@ -149,15 +149,15 @@ Open serial monitor at **115200 baud** before starting each test.
 
 ## Flow 6: IDLE -- RFID Duplicate Card Read (same card after 5s cooldown)
 
-**Precondition:** Device in IDLE state. Same card read > 5 seconds ago (RetardoLectura timer resets OldTagRead to "1").
+**Precondition:** Device in IDLE state. Same card read > 5 seconds ago (`resetStaleTag()` timer resets internal duplicate guard).
 
 | Step | Action | Expected Serial Output | LED | Buzzer | Next State |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Wait > 5 seconds after last read | -- | -- | -- | IDLE (OldTagRead reset to "1") |
-| 2 | Present same card again | `RFID CARD ID IS: <card_id>` | Green flash (short) | Short beep | TRANSMIT_CARD_DATA (2) |
+| 1 | Wait > 5 seconds after last read | -- | -- | -- | IDLE (stale tag reset) |
+| 2 | Present same card again | `RFID CARD ID IS: <card_id>` | Green flash (short) | Short beep | TRANSMIT_SENSOR_DATA (1) |
 | 3 | Normal card publish flow | Same as Flow 4 steps 2-6 | -- | -- | IDLE (0) |
 
-**PASS criteria:** After 5s cooldown, same card is accepted as a new read.
+**PASS criteria:** After 5s cooldown (`resetStaleTag()`), same card is accepted as a new read.
 
 ---
 
@@ -179,11 +179,11 @@ Open serial monitor at **115200 baud** before starting each test.
 
 | Step | Action | Expected Serial Output | LED | Buzzer | Next State |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Touch the capacitive button | `Pressed` | Blue flash (short) | Short beep | TRANSMIT_BOTON_DATA (1) |
-| 2 | FSM enters state 1 | `BOTON DATA SENT` | -- | -- | -- |
+| 1 | Touch the capacitive button | `Pressed` | Blue flash (short) | Short beep | TRANSMIT_SENSOR_DATA (1) |
+| 2 | FSM enters state 1 | `SENSOR DATA SENT` | -- | -- | -- |
 | 3 | MQTT connection check | (if disconnected: `Attempting MQTT connection...` `connected`) | White flash (if reconnecting) | Short beep (if reconnecting) | -- |
 | 4 | CheckTime() runs | (if time not synced: `Time not Sync, Syncronizing time`) | -- | -- | -- |
-| 5 | publish_Boton_Data() | `publishing device publishTopic metadata:` then JSON payload | -- | -- | -- |
+| 5 | publishSensorEvent(buttonSensor) | Builds payload via `buttonSensor.buildPayload()` | -- | -- | -- |
 | 6a | Publish SUCCESS | `enviado data de boton: OK` | Green flash (short) + White OFF | Short beep | IDLE (0) |
 | 6b | Publish FAIL | `enviado data de boton: FAILED` | Red flash (short) + White OFF | -- | IDLE (0) |
 
@@ -203,12 +203,12 @@ Open serial monitor at **115200 baud** before starting each test.
 
 | Step | Action | Expected Serial Output | LED | Buzzer | Next State |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Present RFID card AND press button at same time | `RFID CARD ID IS: <card_id>` | Green flash (short) | Short beep | TRANSMIT_CARD_DATA (2) |
-| 2 | `readBtn()` is SKIPPED | NO `Pressed` message | -- | -- | -- |
+| 1 | Present RFID card AND press button at same time | `RFID CARD ID IS: <card_id>` | Green flash (short) | Short beep | TRANSMIT_SENSOR_DATA (1) |
+| 2 | Button sensor poll is SKIPPED (RFID is first in `sensors[]` array) | NO `Pressed` message | -- | -- | -- |
 | 3 | Card flow completes normally | Same as Flow 4 steps 2-6 | -- | -- | IDLE (0) |
-| 4 | Next loop: button detected (if still held) | `Pressed` | Blue flash | Short beep | TRANSMIT_BOTON_DATA (1) |
+| 4 | Next loop: button detected (if still held) | `Pressed` | Blue flash | Short beep | TRANSMIT_SENSOR_DATA (1) |
 
-**PASS criteria:** Card takes priority. Button is NOT processed in the same loop iteration. `readBtn()` output only appears in subsequent loop.
+**PASS criteria:** Sensor array order determines priority (RFID first). Button is NOT processed in the same loop iteration when RFID has an event. Button event appears in subsequent loop.
 
 ---
 
@@ -355,10 +355,11 @@ Open serial monitor at **115200 baud** before starting each test.
 
 | Step | Action | Expected Serial Output | LED | Buzzer | Next State |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Publish message to `iotdm-1/mgmt/initiate/device/reboot` | `Mensaje recibido desde el Topico: iotdm-1/mgmt/initiate/device/reboot` | -- | -- | -- |
-| 2 | Reboot triggered | `Reiniciando...` | -- | -- | ESP.reset() |
+| 1a | Publish `{"k":"A5F0"}` to `iotdm-1/mgmt/d7e3f1a2` | `Mensaje recibido desde el Topico: iotdm-1/mgmt/d7e3f1a2`, then `Reiniciando...` | -- | -- | ESP.reset() |
+| 1b | Publish `{"k":"WRONG"}` to `iotdm-1/mgmt/d7e3f1a2` | `Mensaje recibido desde el Topico: iotdm-1/mgmt/d7e3f1a2`, then `Reboot: invalid token, ignoring` | -- | -- | Stays in current state |
+| 1c | Publish `reboot` (plaintext) to `iotdm-1/mgmt/d7e3f1a2` | `Reboot: invalid token, ignoring` | -- | -- | Stays in current state |
 
-**PASS criteria:** Device reboots immediately upon receiving reboot message. Normal startup follows.
+**PASS criteria:** Device reboots ONLY when payload contains valid JSON token `{"k":"A5F0"}`. Invalid tokens, non-JSON payloads, and empty messages are rejected with serial warning. Topic name is non-descriptive (obscured).
 
 ---
 
@@ -550,7 +551,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | Step | Action | Expected Serial Output | LED | Buzzer | Next State |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Publish `{"beep": 10}` to ctrl topic | `Buzzer: 10 seconds` | -- | Buzzer ON | IDLE |
-| 2 | Present RFID card while buzzer is active | Card read processed normally | Green flash | -- | TRANSMIT_CARD |
+| 2 | Present RFID card while buzzer is active | Card read processed normally | Green flash | -- | TRANSMIT_SENSOR_DATA |
 | 3 | After 10s | Buzzer turns OFF automatically | -- | Buzzer OFF | IDLE |
 
 **PASS criteria:** FSM continues processing card reads and button presses while buzzer is active. Buzzer turns off automatically after specified duration.
@@ -578,14 +579,31 @@ Open serial monitor at **115200 baud** before starting each test.
 | Step | Action | Expected Serial Output | LED | Buzzer | Next State |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Power on, normal startup | Same serial output as v5.00 (boot reason, config load, WiFi, NTP, MQTT) | Same LED sequence | Same beep sequence | IDLE |
-| 2 | Present RFID card | `RFID CARD ID IS: <id>`, green flash, beep, JSON published | Green flash | Short beep | TRANSMIT_CARD -> IDLE |
-| 3 | Press touch button | `Pressed`, blue flash, beep, JSON published | Blue flash | Short beep | TRANSMIT_BOTON -> IDLE |
+| 2 | Present RFID card | `RFID CARD ID IS: <id>`, green flash, beep, JSON published | Green flash | Short beep | TRANSMIT_SENSOR -> IDLE |
+| 3 | Press touch button | `Pressed`, blue flash, beep, JSON published | Blue flash | Short beep | TRANSMIT_SENSOR -> IDLE |
 | 4 | Wait for heartbeat | `STATE_UPDATE`, heartbeat published to manageTopic with retain | -- | -- | UPDATE -> TRANSMIT -> IDLE |
 | 5 | Send remote RGB command | `RGB set to R:x G:x B:x` | LED color changes | -- | IDLE |
 | 6 | Send remote buzzer | `Buzzer: N seconds`, FSM continues | -- | Non-blocking beep | IDLE |
-| 7 | Send remote reboot | `Reiniciando...`, device reboots | -- | -- | -- |
+| 7 | Send remote reboot (`{"k":"A5F0"}` to obscured topic) | `Reiniciando...`, device reboots | -- | -- | -- |
 
 **PASS criteria:** All behavior identical to v5.00. No regressions from modular refactor.
+
+---
+
+## Flow 27: Sensor Abstraction Verification
+
+**Precondition:** Device flashed with v6.00 firmware (Phase 2 sensor abstraction).
+
+| Step | Action | Expected Serial Output | LED | Buzzer | Next State |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Present RFID card | `RFID CARD ID IS: <id>`, then `SENSOR DATA SENT` (not `CARD DATA SENT`) | Green flash | Short beep | TRANSMIT_SENSOR_DATA (1) -> IDLE |
+| 2 | Press touch button | `Pressed`, then `SENSOR DATA SENT` (not `BOTON DATA SENT`) | Blue flash | Short beep | TRANSMIT_SENSOR_DATA (1) -> IDLE |
+| 3 | Present card + press button simultaneously | RFID processed first (array order), button in next loop | Green flash | Short beep | TRANSMIT_SENSOR_DATA -> IDLE -> TRANSMIT_SENSOR_DATA -> IDLE |
+| 4 | Verify JSON payloads | Card JSON: `tagdata` with `IDeventoTag`. Button JSON: `botondata` with `IDEventoBoton` | -- | -- | -- |
+| 5 | Wait 5s, present same card | Card accepted (stale tag reset via `resetStaleTag()`) | Green flash | Short beep | TRANSMIT_SENSOR_DATA -> IDLE |
+| 6 | Present same card within 60s | `RFID: rate limited, same card too soon` | -- | -- | Stays IDLE |
+
+**PASS criteria:** Both sensors use unified `TRANSMIT_SENSOR_DATA` state and `publishSensorEvent()`. Serial shows `SENSOR DATA SENT` (not sensor-specific state names). JSON payloads unchanged from v5.00. Sensor-specific feedback (LED color, beep) preserved. Rate limiting and duplicate detection work as before.
 
 ---
 
@@ -614,7 +632,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | 6 | Card Read (after cooldown) | Same card after > 5s | Accepted as new read | [ ] |
 | 6b | Invalid RFID Frame | Noisy serial data | "RFID: invalid frame, discarding", NO flash/beep | [ ] |
 | 7 | Button Press | Touch button | Blue flash, beep, JSON published | [ ] |
-| 8 | Priority: Card vs Button | Both at same time | Card wins, button deferred to next loop | [ ] |
+| 8 | Priority: Card vs Button | Both at same time | RFID wins (first in sensors[]), button deferred to next loop | [ ] |
 | 9 | 30-min Update (normal) | Timer expires, RSSI OK | Msg="on", published to manageTopic | [ ] |
 | 10 | 30-min Update (low WiFi) | Timer expires, RSSI < -75 | Msg="LOWiFi", red flash, medium beep | [ ] |
 | 11 | 60-min NTP Resync | Timer expires | NTP sync attempted (5 retries max) | [ ] |
@@ -622,7 +640,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | 13 | 24-Hour Reset | hora > 24 | "24h Normal Reset" published, then restart | [ ] |
 | 14 | Fail Threshold Restart | failed >= fail_threshold | Device restarts, counters zeroed | [ ] |
 | 15 | MQTT Reconnect | Broker unreachable | Max 3 retries with exponential backoff, then continues | [ ] |
-| 16 | Remote Reboot | MQTT reboot message | "Reiniciando...", device reboots | [ ] |
+| 16 | Remote Reboot | `{"k":"A5F0"}` on obscured topic | Reboots with valid token, rejects invalid | [ ] |
 | 17 | Remote Update (params) | MQTT update JSON | Parameters applied, "Updated" logs | [ ] |
 | 17b | Remote OTA Trigger | `{"ota": true}` on update topic | Enters OTA mode (same as Flow 3) | [ ] |
 | 17c | Remote RGB Control | RGB/hex/on/off on ctrl topic | LED color changes, PWM dimming works | [ ] |
@@ -639,6 +657,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | 24 | Non-Blocking Buzzer | Remote beep + card read | FSM processes events during active buzzer | [ ] |
 | 25 | Config Migration | Old config.json | Auto-migrates to v3 (hex XOR), v2 resets password | [ ] |
 | 26 | v6.00 Smoke Test | Normal operation | All behavior identical to v5.00 after modular refactor | [ ] |
+| 27 | Sensor Abstraction | Card + button via sensor array | Unified TRANSMIT_SENSOR_DATA state, generic publishSensorEvent | [ ] |
 
 ---
 
@@ -673,5 +692,5 @@ Open serial monitor at **115200 baud** before starting each test.
 | `msg_seq` | Every MQTT publish (+1) | Never reset (monotonic since boot) | -- (server detects gaps) |
 | `mqtt_backoff_ms` | Doubles on reconnect fail | Reset to 3000 on connect success | Max 60000ms |
 | `hora` | Every 60 minutes (+1) | Reset to 0 on 24h restart | > 24 triggers restart |
-| `Numero_ID_Evento_Boton` | Each button press (+1) | Never reset (session lifetime) | -- |
-| `Numero_ID_Eventos_Tarjeta` | Each new card publish (+1) | Never reset (session lifetime) | -- |
+| `ButtonSensor::_eventCount` | Each button press (+1) | Never reset (session lifetime) | -- |
+| `RFIDSensor::_eventCount` | Each new card publish (+1) | Never reset (session lifetime) | -- |

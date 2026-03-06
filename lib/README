@@ -6,6 +6,7 @@ IoT device firmware for an ESP8266-based (WeMos D1 mini) RFID and capacitive tou
 
 ## Features
 
+- Plug-and-play sensor abstraction (`SensorBase` virtual class) -- add new sensors by implementing the interface
 - RFID card reading via SoftwareSerial (9600 baud) with frame validation
 - Capacitive touch button detection
 - MQTT event publishing to Flatbox IoT platform (JSON format) with truncation detection
@@ -55,6 +56,9 @@ IoT device firmware for an ESP8266-based (WeMos D1 mini) RFID and capacitive tou
 ├── include/
 │   └── Settings.h              # Compile-time constants (extern declarations)
 ├── lib/
+│   ├── SensorBase/src/         # SensorBase - abstract virtual class for plug-and-play sensors
+│   ├── RFIDSensor/src/         # RFIDSensor - RFID reader implementing SensorBase
+│   ├── ButtonSensor/src/       # ButtonSensor - touch button implementing SensorBase
 │   ├── Buzzer/src/             # BTN_Bzzr - piezo buzzer control
 │   ├── Config/src/             # BtnConf struct, LittleFS read/save, XOR obfuscation
 │   ├── Feedback/src/           # LED + buzzer abstraction layer
@@ -68,14 +72,14 @@ IoT device firmware for an ESP8266-based (WeMos D1 mini) RFID and capacitive tou
 │   ├── TouchBtn/src/           # TouchPadButton - capacitive input
 │   └── WifiSetup/src/          # WiFiManager portals, fallback WiFi
 ├── src/
-│   ├── main.cpp                # FSM, setup, loop, sensor read/publish (only app file)
+│   ├── main.cpp                # FSM, setup, loop, sensor array iteration, generic publish
 │   └── Settings.cpp            # Definitions for Settings.h constants and runtime vars
 └── platformio.ini              # Build configuration (espressif8266, d1_mini)
 ```
 
 ## Finite State Machine
 
-The firmware runs a priority-based finite state machine with 7 states. Event priority is **card > button > timers** -- higher-priority events preempt lower-priority checks within the IDLE state.
+The firmware runs a priority-based finite state machine with 6 states. Sensors are polled in array order (RFID first, then button); the first sensor with a pending event triggers a unified transmit state. Event priority is **sensor array order > timers**.
 
 ### State Diagram
 
@@ -88,46 +92,48 @@ The firmware runs a priority-based finite state machine with 7 states. Event pri
                           ┌─────────────▼─────────────┐
             ┌────────────►│         IDLE (0)           │◄───────────────────────┐
             │             │                            │                        │
-            │             │  1. readTag()  ─────────┐  │                        │
-            │             │  2. readBtn()  ────────┐│  │                        │
-            │             │  3. checkalarms()      ││  │                        │
-            │             │  4. 30min timer ──┐    ││  │                        │
-            │             │  5. 60min timer ┐ │    ││  │                        │
-            │             │  6. MQTT keepalive │    ││  │                        │
-            │             └──┬──────┬───────┼─┼────┼┼──┘                        │
-            │                │      │       │ │    ││                            │
-            │   ┌────────────┘      │       │ │    │└───────────────┐            │
-            │   │  ┌────────────────┘       │ │    │                │            │
-            │   │  │  ┌─────────────────────┘ │    │                │            │
-            │   │  │  │  ┌────────────────────┘    │                │            │
-            │   │  │  │  │                         │                │            │
-            │   ▼  ▼  ▼  ▼                         ▼                ▼            │
-            │  ┌────────────┐              ┌──────────────┐  ┌─────────────┐     │
-            │  │UPDATE_TIME │              │ TRANSMIT     │  │ TRANSMIT    │     │
-            │  │   (6)      │              │ BOTON_DATA   │  │ CARD_DATA   │     │
-            │  │            │              │   (1)        │  │   (2)       │     │
-            │  │ NTP sync   │              │              │  │             │     │
-            │  │ (5 retries)│              │ MQTT check   │  │ MQTT check  │     │
-            │  └─────┬──────┘              │ CheckTime()  │  │ CheckTime() │     │
-            │        │                     │ publish_Boton │  │ publishRFID │     │
-            │        └──────►IDLE          └──────┬───────┘  └──────┬──────┘     │
-            │                                     │                 │            │
-            │                                     └──────►IDLE◄────┘            │
-            │                                                                   │
-            │  ┌────────────┐                                                   │
-            │  │ UPDATE (3) │                                                   │
-            │  │            │                                                   │
-            │  │ updateDev  │                                                   │
-            │  │ Info()     │                                                   │
-            │  │ (sets msg  │                                                   │
-            │  │  "on" or   │                                                   │
-            │  │  "LOWiFi") │                                                   │
-            │  └──────┬─────┘                                                   │
-            │         │ always                                                  │
-            │         ▼                                                         │
-            │  ┌──────────────────┐                                             │
-            │  │ TRANSMIT_DEVICE  │                                             │
-            │  │ UPDATE (5)       │─────────────────────────────────────────────┘
+            │             │  for each sensor:          │                        │
+            │             │    sensor->poll()  ──────┐ │                        │
+            │             │    sensor->hasEvent()    │ │                        │
+            │             │                          │ │                        │
+            │             │  checkalarms()            │ │                        │
+            │             │  30min timer ────────┐   │ │                        │
+            │             │  60min timer ──────┐ │   │ │                        │
+            │             │  MQTT keepalive     │ │   │ │                        │
+            │             └──┬──────┬──────────┼─┼───┼─┘                        │
+            │                │      │          │ │   │                           │
+            │   ┌────────────┘      │          │ │   │                           │
+            │   │  ┌────────────────┘          │ │   │                           │
+            │   │  │  ┌────────────────────────┘ │   │                           │
+            │   │  │  │  ┌───────────────────────┘   │                           │
+            │   │  │  │  │                           │                           │
+            │   ▼  ▼  ▼  ▼                           ▼                           │
+            │  ┌────────────┐              ┌───────────────────┐                 │
+            │  │UPDATE_TIME │              │ TRANSMIT_SENSOR   │                 │
+            │  │   (6)      │              │ DATA (1)          │                 │
+            │  │            │              │                   │                 │
+            │  │ NTP sync   │              │ MQTT check        │                 │
+            │  │ (5 retries)│              │ CheckTime()       │                 │
+            │  └─────┬──────┘              │ publishSensorEvent│                 │
+            │        │                     │ (activeSensor)    │                 │
+            │        └──────►IDLE          └─────────┬─────────┘                 │
+            │                                        │                           │
+            │                                        └──────────►IDLE            │
+            │                                                                    │
+            │  ┌────────────┐                                                    │
+            │  │ UPDATE (3) │                                                    │
+            │  │            │                                                    │
+            │  │ updateDev  │                                                    │
+            │  │ Info()     │                                                    │
+            │  │ (sets msg  │                                                    │
+            │  │  "on" or   │                                                    │
+            │  │  "LOWiFi") │                                                    │
+            │  └──────┬─────┘                                                    │
+            │         │ always                                                   │
+            │         ▼                                                          │
+            │  ┌──────────────────┐                                              │
+            │  │ TRANSMIT_DEVICE  │                                              │
+            │  │ UPDATE (5)       │──────────────────────────────────────────────┘
             │  │                  │
             │  │ MQTT check       │
             │  │ CheckTime()      │
@@ -148,13 +154,11 @@ The firmware runs a priority-based finite state machine with 7 states. Event pri
 
 | From State | To State | Trigger |
 | --- | --- | --- |
-| IDLE | TRANSMIT_CARD_DATA | RFID card detected by `readTag()` (non-duplicate) |
-| IDLE | TRANSMIT_BOTON_DATA | Button press detected by `readBtn()` |
+| IDLE | TRANSMIT_SENSOR_DATA | Any sensor in `sensors[]` array reports `hasEvent()` (first match wins, array order = priority) |
 | IDLE | UPDATE | 30-minute periodic timer expires |
 | IDLE | UPDATE_TIME | 60-minute NTP resync timer expires |
 | IDLE | (restart) | Failed MQTT messages exceed threshold (150) |
-| TRANSMIT_BOTON_DATA | IDLE | After publishing button event |
-| TRANSMIT_CARD_DATA | IDLE | After publishing card event |
+| TRANSMIT_SENSOR_DATA | IDLE | After `publishSensorEvent(activeSensor)` completes |
 | UPDATE | TRANSMIT_DEVICE_UPDATE | Always (msg carries "on" or "LOWiFi") |
 | TRANSMIT_DEVICE_UPDATE | IDLE | After publishing device data |
 | UPDATE_TIME | IDLE | After NTP sync (up to 5 retries) |
@@ -189,7 +193,7 @@ The firmware runs a priority-based finite state machine with 7 states. Event pri
 | ------- | --------- |
 | `iotdm-1/response/` | Server acknowledgment messages (logged to serial) |
 | `iotdm-1/device/update` | Remote parameter updates (see table below) |
-| `iotdm-1/mgmt/initiate/device/reboot` | Remote reboot (any payload triggers `ESP.reset()`) |
+| `iotdm-1/mgmt/d7e3f1a2` | Remote reboot (requires JSON token `{"k":"A5F0"}`, rejects invalid payloads) |
 | `iotdm-1/device/ctrl` | RGB LED and buzzer control |
 
 ### Remote Control Commands (`iotdm-1/device/ctrl`)
@@ -342,11 +346,20 @@ The device uses a multi-layer WiFi recovery strategy:
 
 ## Changelog
 
-### v6.00 - Modular Architecture Refactor
+### v6.00 - Modular Architecture Refactor + Sensor Abstraction
 
-Codebase restructured for modularity, scalability, and extensibility. No behavior changes -- same serial output, MQTT payloads, and FSM logic. Goal: make the firmware a standard platform where sensor modules are plug-and-play.
+Codebase restructured for modularity, scalability, and extensibility. Goal: make the firmware a standard platform where sensor modules are plug-and-play.
 
-Architecture:
+Phase 2 -- Sensor Abstraction:
+
+- Created `lib/SensorBase/src/sensor_base.h` -- abstract virtual base class defining the sensor interface: `begin()`, `poll()`, `hasEvent()`, `buildPayload()`, `topicName()`, `onPublishOk()`, `onPublishFail()`.
+- Created `lib/RFIDSensor/src/` -- RFID reader wrapped as `SensorBase` implementation. Owns `SoftwareSerial`, tag buffer, duplicate detection, rate limiting (60s per card), and stale-tag reset. All RFID globals moved from main.cpp into the class.
+- Created `lib/ButtonSensor/src/` -- touch button wrapped as `SensorBase` implementation. Owns `TouchPadButton`, event counter, and event ID generation. All button globals moved from main.cpp into the class.
+- Unified FSM: `STATE_TRANSMIT_BOTON_DATA` (1) and `STATE_TRANSMIT_CARD_DATA` (2) merged into `STATE_TRANSMIT_SENSOR_DATA` (1) with an `activeSensor` pointer. Generic `publishSensorEvent()` handles MQTT publish, counters, and delegates feedback to the sensor.
+- Sensor loop: IDLE state iterates `sensors[]` array, polls each sensor, and transitions on first event. Array order determines priority (RFID before button).
+- Adding a new sensor requires only: (1) implement `SensorBase`, (2) instantiate in main.cpp, (3) add pointer to `sensors[]` array. No FSM or publish code changes needed.
+
+Phase 1 -- Module Extraction:
 
 - Extracted `lib/Pins/src/pins.h` -- all hardware pin definitions centralized in one file. Changing a pin or porting to new hardware requires editing only this file.
 - Extracted `lib/Feedback/src/` -- unified LED + buzzer abstraction layer with semantic functions (`feedback_ok()`, `feedback_error()`, `feedback_warning()`, etc.). Swapping LED hardware (e.g., WS2812) requires editing only `feedback.cpp`.
@@ -355,7 +368,11 @@ Architecture:
 - Extracted `lib/WifiSetup/src/` -- WiFiManager portal modes (on-demand and auto) and fallback WiFi connection logic.
 - Extracted `lib/MqttManager/src/` -- MQTT connect/reconnect with LWT and exponential backoff, callback dispatcher (response/reboot/update/RGB handlers), topic subscriptions, and device metadata publishing.
 - Created `src/Settings.cpp` -- definitions for all `Settings.h` extern declarations. `Settings.h` now contains only extern declarations (proper header/source split, no more globals defined in a header).
-- `src/main.cpp` reduced from 1,245 lines to ~340 lines -- contains only FSM, setup, loop, and sensor read/publish functions. Only `main.cpp` and `Settings.cpp` remain in `src/`; all modules are in `lib/`.
+- `src/main.cpp` reduced from 1,245 lines to ~280 lines -- contains only FSM, setup, loop, sensor array iteration, and generic `publishSensorEvent()`. Only `main.cpp` and `Settings.cpp` remain in `src/`; all modules are in `lib/`.
+
+Security:
+
+- **Reboot hardening:** Renamed reboot topic from `iotdm-1/mgmt/initiate/device/reboot` to non-descriptive `iotdm-1/mgmt/d7e3f1a2`. Reboot now requires valid JSON token `{"k":"A5F0"}` -- invalid payloads, plaintext, and empty messages are rejected with serial warning. Prevents casual/accidental reboot attacks from users with broker access.
 
 Bug fixes:
 

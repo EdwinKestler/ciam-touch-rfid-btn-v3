@@ -2,14 +2,13 @@
   main.cpp - CIAM Touch RFID Button platform
   FSM, setup, loop, and sensor read/publish functions.
   All infrastructure (config, MQTT, WiFi, feedback, OTA) is in separate modules.
+  Sensors use the SensorBase abstraction for plug-and-play extensibility.
 */
 #include <Arduino.h>
-#include <SoftwareSerial.h>
 #include <ArduinoOTA.h>
 #include <ESP8266WiFi.h>
 #include <TimeLibEsp.h>
 #include <NTP_Client.h>
-#include <TouchPadButton.h>
 #include <Flatbox_Publish.h>
 #include <Settings.h>
 
@@ -20,11 +19,14 @@
 #include <wifi_setup.h>
 #include <mqtt_manager.h>
 
+#include <sensor_base.h>
+#include <rfid_sensor.h>
+#include <button_sensor.h>
+
 // --- FSM states ---
 enum FsmState {
   STATE_IDLE                   = 0,
-  STATE_TRANSMIT_BOTON_DATA    = 1,
-  STATE_TRANSMIT_CARD_DATA     = 2,
+  STATE_TRANSMIT_SENSOR_DATA   = 1,
   STATE_UPDATE                 = 3,
   STATE_TRANSMIT_DEVICE_UPDATE = 5,
   STATE_UPDATE_TIME            = 6,
@@ -38,27 +40,6 @@ bool OTA_ENABLED = false;
 bool Wifi_On_Demand_ENABLED = false;
 unsigned long Btn_check_Current_millis;
 
-// --- RFID reader ---
-SoftwareSerial RFIDReader(PIN_RFID_TX, PIN_RFID_RX, false);
-#define RFID_FRAME_SIZE 13
-#define RFID_RATE_LIMIT_MS 60000UL
-
-byte incomingdata;
-String inputString;
-byte tagID[RFID_FRAME_SIZE];
-String OldTagRead = "1";
-boolean readedTag = false;
-unsigned int count = 0;
-unsigned long RetardoLectura;
-unsigned long lastCardPublishMillis = 0;
-String lastPublishedCardID = "";
-int Numero_ID_Eventos_Tarjeta = 0;
-
-// --- Touch button ---
-TouchPadButton T_button(PIN_TOUCH);
-char identificador_ID_Evento_Boton[32];
-int Numero_ID_Evento_Boton = 0;
-
 // --- ESP8266 identity ---
 String NodeID = String(ESP.getChipId());
 char clientId[50];
@@ -71,6 +52,14 @@ NTPClient* pTimeClient = nullptr;
 
 // --- Flatbox JSON publisher ---
 flatbox Flatbox_Json(NodeID);
+
+// --- Sensors ---
+RFIDSensor rfidSensor(PIN_RFID_TX, PIN_RFID_RX, NodeID, Flatbox_Json);
+ButtonSensor buttonSensor(PIN_TOUCH, NodeID, Flatbox_Json);
+
+SensorBase* sensors[] = { &rfidSensor, &buttonSensor };
+const int SENSOR_COUNT = sizeof(sensors) / sizeof(sensors[0]);
+SensorBase* activeSensor = nullptr;
 
 // --- Timers and status ---
 unsigned long Last_Normal_Reset_Millis;
@@ -119,60 +108,6 @@ void CheckTime() {
   }
 }
 
-// ============================================================ RFID
-void clearBufferArray() {
-  inputString = "";
-  for (unsigned int i = 0; i < RFID_FRAME_SIZE; i++) {
-    tagID[i] = 0;
-  }
-}
-
-void readTag() {
-  if (RFIDReader.available()) {
-    inputString = "";
-    while (RFIDReader.available() > 0) {
-      incomingdata = RFIDReader.read();
-      tagID[count] = incomingdata;
-      if (count > 3 && count < 8) {
-        inputString += incomingdata;
-      }
-      delay(2);
-      if (count == 12) break;
-      count++;
-    }
-    count = 0;
-    bool allZero = true;
-    for (unsigned int i = 0; i < inputString.length(); i++) {
-      if (inputString[i] != '0' && inputString[i] != '\0') { allZero = false; break; }
-    }
-    if (inputString.length() == 0 || allZero) {
-      Serial.println(F("RFID: invalid frame, discarding"));
-      clearBufferArray();
-      return;
-    }
-    Serial.print(F("RFID CARD ID IS: "));
-    Serial.println(inputString);
-    if (OldTagRead == inputString) {
-      Serial.println(F("Duplicate read, ignoring"));
-      return;
-    }
-    feedback_card_read();
-    readedTag = !readedTag;
-    fsm_state = STATE_TRANSMIT_CARD_DATA;
-  }
-}
-
-// ============================================================ Button
-void readBtn() {
-  if (T_button.check()) {
-    Serial.println(F("Pressed"));
-    Numero_ID_Evento_Boton++;
-    snprintf(identificador_ID_Evento_Boton, sizeof(identificador_ID_Evento_Boton), "%s-%d", NodeID.c_str(), Numero_ID_Evento_Boton);
-    feedback_button_press();
-    fsm_state = STATE_TRANSMIT_BOTON_DATA;
-  }
-}
-
 // ============================================================ Publish functions
 void publishRF_ID_Manejo() {
   sent++;
@@ -188,56 +123,17 @@ void publishRF_ID_Manejo() {
   }
 }
 
-void publish_Boton_Data() {
+void publishSensorEvent(SensorBase* sensor) {
   sent++;
   msg_seq++;
-  if (client.publish(publishTopic, Flatbox_Json.Evento_Boton(ISO8601, identificador_ID_Evento_Boton, msg_seq))) {
-    Serial.println(F("enviado data de boton: OK"));
-    feedback_publish_ok();
+  const char* payload = sensor->buildPayload(ISO8601, msg_seq);
+  if (client.publish(sensor->topicName(), payload)) {
+    sensor->onPublishOk();
     published++;
     failed = failed / 2;
   } else {
-    Serial.println(F("enviado data de boton: FAILED"));
-    feedback_publish_fail();
+    sensor->onPublishFail();
     failed++;
-  }
-  Blanco.COff();
-}
-
-boolean publishRF_ID_Lectura() {
-  if (OldTagRead != inputString) {
-    if (inputString == lastPublishedCardID && millis() - lastCardPublishMillis < RFID_RATE_LIMIT_MS) {
-      Serial.println(F("RFID: rate limited, same card too soon"));
-      OldTagRead = inputString;
-      inputString = "";
-      return false;
-    }
-    OldTagRead = inputString;
-    lastPublishedCardID = inputString;
-    lastCardPublishMillis = millis();
-    Numero_ID_Eventos_Tarjeta++;
-    char Identificador_ID_Evento_Tarjeta[32];
-    snprintf(Identificador_ID_Evento_Tarjeta, sizeof(Identificador_ID_Evento_Tarjeta), "%s-%d", NodeID.c_str(), Numero_ID_Eventos_Tarjeta);
-    sent++;
-    msg_seq++;
-    if (client.publish(publishTopic, Flatbox_Json.Evento_Tarjeta(Identificador_ID_Evento_Tarjeta, ISO8601, inputString, msg_seq))) {
-      Serial.println(F("enviado data de RFID: OK"));
-      feedback_publish_ok();
-      published++;
-      inputString = "";
-      failed = failed / 2;
-      return true;
-    } else {
-      Serial.println(F("enviado data de RFID: FAILED"));
-      feedback_publish_fail();
-      failed++;
-      OldTagRead = "1";
-      inputString = "";
-      return false;
-    }
-  } else {
-    Serial.println("Este es una lectura consecutiva");
-    return false;
   }
 }
 
@@ -296,7 +192,10 @@ void setup() {
   Serial.println(F("inicio exitosamnte el puerto Serial"));
   Serial.println();
 
-  RFIDReader.begin(9600);
+  // Initialize sensors
+  for (int i = 0; i < SENSOR_COUNT; i++) {
+    sensors[i]->begin();
+  }
 
   // Load config from LittleFS
   readConfigFromLittleFS();
@@ -313,14 +212,14 @@ void setup() {
 
   // --- Boot mode selection: button held during startup windows ---
   Serial.print(F("            estado del Boton: "));
-  Serial.println(T_button.check());
+  Serial.println(buttonSensor.button().check());
   delay(Universal_1_sec_Interval);
 
   // Window 1: Hold button for on-demand WiFi config portal
   Btn_check_Current_millis = millis();
   Verde.This_RGB_State(HIGH);
   while (millis() < (Btn_check_Current_millis + Btn_conf_Mode_Interval) && !OTA_ENABLED) {
-    if (T_button.check()) {
+    if (buttonSensor.button().check()) {
       bootToOnDemandWifiManager();
       Wifi_On_Demand_ENABLED = true;
     }
@@ -332,7 +231,7 @@ void setup() {
   Rojo.This_RGB_State(HIGH);
   Btn_check_Current_millis = millis();
   while (millis() < (Btn_check_Current_millis + Btn_conf_Mode_Interval) && !Wifi_On_Demand_ENABLED) {
-    if (T_button.check()) {
+    if (buttonSensor.button().check()) {
       bootToOTA(fsm_state);
       OTA_ENABLED = true;
     }
@@ -404,7 +303,6 @@ void setup() {
     Last_Normal_Reset_Millis = millis();
     Last_Update_Millis = millis();
     Last_NTP_Update_Millis = millis();
-    RetardoLectura = millis();
     fsm_state = STATE_IDLE;
     yield();
   }
@@ -414,12 +312,20 @@ void setup() {
 void loop() {
   switch (fsm_state) {
     case STATE_IDLE:
-      readTag();
+      // Poll all sensors
+      for (int i = 0; i < SENSOR_COUNT; i++) {
+        sensors[i]->poll();
+        if (sensors[i]->hasEvent()) {
+          activeSensor = sensors[i];
+          fsm_state = STATE_TRANSMIT_SENSOR_DATA;
+          break;
+        }
+      }
       if (fsm_state != STATE_IDLE) break;
-      readBtn();
-      if (fsm_state != STATE_IDLE) break;
+
       NormalReset();
       checkalarms();
+      rfidSensor.resetStaleTag();
 
       if (millis() - Last_Update_Millis > (unsigned long)heartbeat_minutes * 60 * Universal_1_sec_Interval) {
         Last_Update_Millis = millis();
@@ -430,10 +336,6 @@ void loop() {
         Last_NTP_Update_Millis = millis();
         fsm_state = STATE_UPDATE_TIME;
         break;
-      }
-      if (millis() - RetardoLectura > 5 * Universal_1_sec_Interval) {
-        OldTagRead = "1";
-        RetardoLectura = millis();
       }
       if (failed >= fail_threshold) {
         failed = 0; published = 0; sent = 0;
@@ -446,20 +348,12 @@ void loop() {
       yield();
       break;
 
-    case STATE_TRANSMIT_BOTON_DATA:
-      Serial.println(F("BOTON DATA SENT"));
+    case STATE_TRANSMIT_SENSOR_DATA:
+      Serial.println(F("SENSOR DATA SENT"));
       if (!client.connected()) { mqttReconnect(clientId, NodeID.c_str()); }
       CheckTime();
-      publish_Boton_Data();
-      fsm_state = STATE_IDLE;
-      break;
-
-    case STATE_TRANSMIT_CARD_DATA:
-      Serial.println(F("CARD DATA SENT"));
-      if (!client.connected()) { mqttReconnect(clientId, NodeID.c_str()); }
-      CheckTime();
-      publishRF_ID_Lectura();
-      clearBufferArray();
+      publishSensorEvent(activeSensor);
+      activeSensor = nullptr;
       fsm_state = STATE_IDLE;
       break;
 

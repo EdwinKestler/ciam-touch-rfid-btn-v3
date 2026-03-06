@@ -19,7 +19,7 @@ char publishTopic[]  = "iot-2/evt/status/fmt/json";
 char responseTopic[] = "iotdm-1/response/";
 char manageTopic[]   = "iotdevice-1/mgmt/manage";
 char updateTopic[]   = "iotdm-1/device/update";
-char rebootTopic[]   = "iotdm-1/mgmt/initiate/device/reboot";
+char rebootTopic[]   = "iotdm-1/mgmt/d7e3f1a2";
 char rgbTopic[]      = "iotdm-1/device/ctrl";
 
 // Runtime-configurable variables (defaults, changeable via MQTT)
