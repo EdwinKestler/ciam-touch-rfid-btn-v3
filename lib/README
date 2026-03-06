@@ -56,19 +56,19 @@ IoT device firmware for an ESP8266-based (WeMos D1 mini) RFID and capacitive tou
 │   └── Settings.h              # Compile-time constants (extern declarations)
 ├── lib/
 │   ├── Buzzer/src/             # BTN_Bzzr - piezo buzzer control
+│   ├── Config/src/             # BtnConf struct, LittleFS read/save, XOR obfuscation
+│   ├── Feedback/src/           # LED + buzzer abstraction layer
 │   ├── Flatbox_publish/src/    # flatbox - MQTT JSON payload formatting
+│   ├── MqttManager/src/        # MQTT connect/reconnect, callback dispatch, subscriptions
 │   ├── NTP_Client/src/         # NTPClient - UDP time synchronization
+│   ├── OTA/src/                # OTA update mode
+│   ├── Pins/src/               # Centralized pin definitions
 │   ├── RGB/src/                # BlinkRGB / BlinkColor - LED control (digital + PWM)
 │   ├── TimeESP/src/            # TimeLibEsp - date/time management
-│   └── TouchBtn/src/           # TouchPadButton - capacitive input
+│   ├── TouchBtn/src/           # TouchPadButton - capacitive input
+│   └── WifiSetup/src/          # WiFiManager portals, fallback WiFi
 ├── src/
-│   ├── main.cpp                # FSM, setup, loop, sensor read/publish
-│   ├── pins.h                  # Centralized pin definitions
-│   ├── feedback.h/.cpp         # LED + buzzer abstraction layer
-│   ├── config.h/.cpp           # BtnConf struct, LittleFS read/save, XOR obfuscation
-│   ├── ota.h/.cpp              # OTA update mode
-│   ├── wifi_setup.h/.cpp       # WiFiManager portals, fallback WiFi
-│   ├── mqtt_manager.h/.cpp     # MQTT connect/reconnect, callback dispatch, subscriptions
+│   ├── main.cpp                # FSM, setup, loop, sensor read/publish (only app file)
 │   └── Settings.cpp            # Definitions for Settings.h constants and runtime vars
 └── platformio.ini              # Build configuration (espressif8266, d1_mini)
 ```
@@ -348,14 +348,14 @@ Codebase restructured for modularity, scalability, and extensibility. No behavio
 
 Architecture:
 
-- Extracted `src/pins.h` -- all hardware pin definitions centralized in one file. Changing a pin or porting to new hardware requires editing only this file.
-- Extracted `src/feedback.h/.cpp` -- unified LED + buzzer abstraction layer with semantic functions (`feedback_ok()`, `feedback_error()`, `feedback_warning()`, etc.). Swapping LED hardware (e.g., WS2812) requires editing only `feedback.cpp`.
-- Extracted `src/config.h/.cpp` -- `BtnConf` struct, LittleFS read/save, XOR hex obfuscation, WiFiManager parameter handling, config version migration. All config logic in one place.
-- Extracted `src/ota.h/.cpp` -- OTA update mode setup isolated from main FSM.
-- Extracted `src/wifi_setup.h/.cpp` -- WiFiManager portal modes (on-demand and auto) and fallback WiFi connection logic.
-- Extracted `src/mqtt_manager.h/.cpp` -- MQTT connect/reconnect with LWT and exponential backoff, callback dispatcher (response/reboot/update/RGB handlers), topic subscriptions, and device metadata publishing.
+- Extracted `lib/Pins/src/pins.h` -- all hardware pin definitions centralized in one file. Changing a pin or porting to new hardware requires editing only this file.
+- Extracted `lib/Feedback/src/` -- unified LED + buzzer abstraction layer with semantic functions (`feedback_ok()`, `feedback_error()`, `feedback_warning()`, etc.). Swapping LED hardware (e.g., WS2812) requires editing only `feedback.cpp`.
+- Extracted `lib/Config/src/` -- `BtnConf` struct, LittleFS read/save, XOR hex obfuscation, WiFiManager parameter handling, config version migration. All config logic in one place.
+- Extracted `lib/OTA/src/` -- OTA update mode setup isolated from main FSM.
+- Extracted `lib/WifiSetup/src/` -- WiFiManager portal modes (on-demand and auto) and fallback WiFi connection logic.
+- Extracted `lib/MqttManager/src/` -- MQTT connect/reconnect with LWT and exponential backoff, callback dispatcher (response/reboot/update/RGB handlers), topic subscriptions, and device metadata publishing.
 - Created `src/Settings.cpp` -- definitions for all `Settings.h` extern declarations. `Settings.h` now contains only extern declarations (proper header/source split, no more globals defined in a header).
-- `main.cpp` reduced from 1,245 lines to ~340 lines -- contains only FSM, setup, loop, and sensor read/publish functions.
+- `src/main.cpp` reduced from 1,245 lines to ~340 lines -- contains only FSM, setup, loop, and sensor read/publish functions. Only `main.cpp` and `Settings.cpp` remain in `src/`; all modules are in `lib/`.
 
 Bug fixes:
 

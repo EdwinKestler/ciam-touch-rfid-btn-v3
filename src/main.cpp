@@ -13,12 +13,12 @@
 #include <Flatbox_Publish.h>
 #include <Settings.h>
 
-#include "pins.h"
-#include "config.h"
-#include "feedback.h"
-#include "ota.h"
-#include "wifi_setup.h"
-#include "mqtt_manager.h"
+#include <pins.h>
+#include <config.h>
+#include <feedback.h>
+#include <ota.h>
+#include <wifi_setup.h>
+#include <mqtt_manager.h>
 
 // --- FSM states ---
 enum FsmState {

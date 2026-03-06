@@ -2,8 +2,8 @@
   wifi_setup.cpp - WiFiManager portal modes and fallback WiFi.
 */
 #include "wifi_setup.h"
-#include "config.h"
-#include "feedback.h"
+#include <config.h>
+#include <feedback.h>
 #include <ESP8266WiFi.h>
 #include <WiFiManager.h>
 

@@ -4,7 +4,13 @@
       "Bash(pio run)",
       "WebFetch(domain:api.github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(~/.platformio/penv/Scripts/pio run)"
+      "Bash(~/.platformio/penv/Scripts/pio run)",
+      "Bash(mv src/pins.h lib/Pins/src/)",
+      "Bash(mv src/feedback.h src/feedback.cpp lib/Feedback/src/)",
+      "Bash(mv src/config.h src/config.cpp lib/Config/src/)",
+      "Bash(mv src/ota.h src/ota.cpp lib/OTA/src/)",
+      "Bash(mv src/wifi_setup.h src/wifi_setup.cpp lib/WifiSetup/src/)",
+      "Bash(mv src/mqtt_manager.h src/mqtt_manager.cpp lib/MqttManager/src/)"
     ]
   }
 }

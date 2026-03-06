@@ -9,7 +9,7 @@
 #include <Arduino.h>
 #include <BlinkRGB.h>
 #include <BTN_Bzzr.h>
-#include "pins.h"
+#include <pins.h>
 
 // Configurable durations (remotely adjustable via MQTT update topic)
 extern unsigned long tono_corto;

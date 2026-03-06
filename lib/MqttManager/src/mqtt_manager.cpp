@@ -2,10 +2,10 @@
   mqtt_manager.cpp - MQTT connection, reconnection, callback dispatch, topic subscriptions.
 */
 #include "mqtt_manager.h"
-#include "config.h"
-#include "feedback.h"
-#include "wifi_setup.h"
-#include "ota.h"
+#include <config.h>
+#include <feedback.h>
+#include <wifi_setup.h>
+#include <ota.h>
 #include <Settings.h>
 #include <ArduinoJson.h>
 
