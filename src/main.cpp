@@ -7,10 +7,9 @@
 #include <Arduino.h>
 #include <ArduinoOTA.h>
 #include <ESP8266WiFi.h>
-#include <TimeLibEsp.h>
-#include <NTP_Client.h>
 #include <Flatbox_Publish.h>
 #include <Settings.h>
+#include <ntp_sync.h>
 
 #include <pins.h>
 #include <config.h>
@@ -44,12 +43,6 @@ unsigned long Btn_check_Current_millis;
 String NodeID = String(ESP.getChipId());
 char clientId[50];
 
-// --- NTP ---
-WiFiUDP ntpUDP;
-boolean NTP_response = false;
-char ISO8601[21] = "";
-NTPClient* pTimeClient = nullptr;
-
 // --- Flatbox JSON publisher ---
 flatbox Flatbox_Json(NodeID);
 
@@ -71,42 +64,6 @@ float VBat = 0;
 int hora = 0;
 int WifiSignal;
 String bootReason;
-
-// ============================================================ NTP
-time_t NTP_ready() {
-  Serial.println(F("Transmit NTP Request"));
-  pTimeClient->update();
-  uint32_t beginWait = millis();
-  while (millis() - beginWait < 1500) {
-    Serial.print(".");
-    delay(100);
-    unsigned long EpochTime = pTimeClient->getRawTime();
-    if (EpochTime >= 3610) {
-      Serial.println();
-      Serial.println(F("Receive NTP Response"));
-      NTP_response = true;
-      return EpochTime + (timeZone * SECS_PER_HOUR);
-    }
-  }
-  Serial.println();
-  Serial.println(F("No NTP Response :-("));
-  NTP_response = false;
-  return 0;
-}
-
-void CheckTime() {
-  static time_t prevDisplay = 0;
-  if (timeStatus() != timeNotSet) {
-    time_t t = now();
-    if (t != prevDisplay) {
-      prevDisplay = t;
-      snprintf(ISO8601, sizeof(ISO8601), "%04d-%02d-%02dT%02d:%02d:%02d", year(), month(), day(), hour(), minute(), second());
-    }
-  } else {
-    Serial.println(F("Time not Sync, Syncronizing time"));
-    NTP_ready();
-  }
-}
 
 // ============================================================ Publish functions
 void publishRF_ID_Manejo() {
@@ -166,7 +123,7 @@ void NormalReset() {
     if (hora > 24) {
       strlcpy(msg, "24h Normal Reset", sizeof(msg));
       if (!client.connected()) { mqttReconnect(clientId, NodeID.c_str()); }
-      CheckTime();
+      ntp_check_time();
       publishRF_ID_Manejo();
       client.disconnect();
       hora = 0;
@@ -229,7 +186,7 @@ void setup() {
   snprintf(clientId, sizeof(clientId), "d:%s:%s:%s", ORG, DEVICE_TYPE, btnconfig.Device_ID);
 
   // Initialize NTP client
-  pTimeClient = new NTPClient(btnconfig.NTPClient_SERVER, 0, atoi(btnconfig.NTPClient_interval));
+  ntp_init(btnconfig.NTPClient_SERVER, atoi(btnconfig.NTPClient_interval));
 
   // --- Boot mode selection: button held during startup windows ---
   Serial.print(F("            estado del Boton: "));
@@ -285,18 +242,8 @@ void setup() {
     Serial.println(btnconfig.NTPClient_SERVER);
     Serial.print(F("Intervalo de actualizacion: "));
     Serial.println(atoi(btnconfig.NTPClient_interval));
-    pTimeClient->begin();
-
     if (WiFi.status() == WL_CONNECTED) {
-      for (int ntp_retry = 0; ntp_retry < 5 && !NTP_response; ntp_retry++) {
-        Serial.print(F("NTP sync attempt #"));
-        Serial.println(ntp_retry + 1);
-        setSyncProvider(NTP_ready);
-        delay(5 * Universal_1_sec_Interval);
-      }
-      if (!NTP_response) {
-        Serial.println(F("NTP sync failed after 5 attempts, continuing without time"));
-      }
+      ntp_sync_startup();
     } else {
       Serial.println(F("Wifi nor connected no NTP possible"));
     }
@@ -372,7 +319,7 @@ void loop() {
     case STATE_TRANSMIT_SENSOR_DATA:
       Serial.println(F("SENSOR DATA SENT"));
       if (!client.connected()) { mqttReconnect(clientId, NodeID.c_str()); }
-      CheckTime();
+      ntp_check_time();
       publishSensorEvent(activeSensor);
       activeSensor = nullptr;
       fsm_state = STATE_IDLE;
@@ -387,26 +334,13 @@ void loop() {
     case STATE_TRANSMIT_DEVICE_UPDATE:
       Serial.println(F("STATE_TRANSMIT_DEVICE_UPDATE"));
       if (!client.connected()) { mqttReconnect(clientId, NodeID.c_str()); }
-      CheckTime();
+      ntp_check_time();
       publishRF_ID_Manejo();
       fsm_state = STATE_IDLE;
       break;
 
     case STATE_UPDATE_TIME:
-      Serial.println(F("NTP_CLIENT"));
-      pTimeClient->update();
-      {
-        int ntpRetry = 0;
-        while (!NTP_response && ntpRetry < 5) {
-          setSyncProvider(NTP_ready);
-          delay(Universal_1_sec_Interval);
-          ntpRetry++;
-        }
-        if (!NTP_response) {
-          Serial.println(F("NTP sync failed after 5 attempts, continuing..."));
-        }
-      }
-      NTP_response = false;
+      ntp_resync();
       fsm_state = STATE_IDLE;
       break;
 

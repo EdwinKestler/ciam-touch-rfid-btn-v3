@@ -638,6 +638,22 @@ Open serial monitor at **115200 baud** before starting each test.
 
 ---
 
+## Flow 30: NTP Module Extraction Verification
+
+**Precondition:** Device flashed with v6.00 firmware (NTP module extraction).
+
+| Step | Action | Expected Serial Output | LED | Buzzer | Next State |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Power on, normal startup | `servidor de NTP: <server>`, `Intervalo de actualizacion: <interval>`, then `NTP sync attempt #1`, `.....`, `Receive NTP Response` | -- | -- | -- |
+| 2 | Verify ISO8601 timestamp in heartbeat | Heartbeat JSON `Tstamp` field contains valid `YYYY-MM-DDThh:mm:ss` | -- | -- | -- |
+| 3 | Wait for 60-min NTP resync (or reduce `Universal_1_sec_Interval`) | `NTP_CLIENT`, NTP resync attempted (up to 5 retries) | -- | -- | UPDATE_TIME -> IDLE |
+| 4 | Present RFID card or press button | `ntp_check_time()` updates ISO8601 before publish -- timestamp in JSON payload reflects current time | -- | -- | TRANSMIT_SENSOR_DATA -> IDLE |
+| 5 | Disconnect NTP server (block UDP 123) | `No NTP Response :-(`, `NTP sync failed after 5 attempts, continuing...` -- device continues operating with last known time | -- | -- | IDLE |
+
+**PASS criteria:** NTP behavior identical to pre-extraction. Startup sync retries up to 5 times. Runtime resync works via `STATE_UPDATE_TIME`. ISO8601 timestamps appear correctly in all MQTT payloads. NTP failure is non-fatal (device continues with stale time). No new globals in `main.cpp` -- all NTP state owned by `lib/NTPSync/`.
+
+---
+
 ## Flow 19: Unknown FSM State (safety net)
 
 **Precondition:** `fsm_state` set to an undefined value (e.g., via memory corruption or bug). Cannot be triggered manually in normal operation.
@@ -691,6 +707,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | 27 | Sensor Abstraction | Card + button via sensor array | Unified TRANSMIT_SENSOR_DATA state, generic publishSensorEvent | [ ] |
 | 28 | HeartbeatData Struct | 30-min heartbeat or 24h reset | JSON payload identical to pre-Phase-3, all 20 fields present | [ ] |
 | 29 | Non-Blocking Feedback | Card read during active LED/buzzer | FSM processes events without delay, LED+buzzer fire simultaneously | [ ] |
+| 30 | NTP Module Extraction | Startup NTP sync, runtime resync, timestamps | NTP behavior identical to pre-extraction, ISO8601 in all payloads | [ ] |
 
 ---
 

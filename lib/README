@@ -65,6 +65,7 @@ IoT device firmware for an ESP8266-based (WeMos D1 mini) RFID and capacitive tou
 │   ├── Flatbox_publish/src/    # flatbox - MQTT JSON payload formatting + HeartbeatData struct
 │   ├── MqttManager/src/        # MQTT connect/reconnect, callback dispatch, subscriptions
 │   ├── NTP_Client/src/         # NTPClient - UDP time synchronization
+│   ├── NTPSync/src/            # NTP module - init, startup sync, resync, ISO8601 timestamp
 │   ├── OTA/src/                # OTA update mode
 │   ├── Pins/src/               # Centralized pin definitions
 │   ├── RGB/src/                # BlinkRGB / BlinkColor - LED control (digital + PWM)
@@ -349,6 +350,15 @@ The device uses a multi-layer WiFi recovery strategy:
 ### v6.00 - Modular Architecture Refactor + Sensor Abstraction
 
 Codebase restructured for modularity, scalability, and extensibility. Goal: make the firmware a standard platform where sensor modules are plug-and-play.
+
+NTP Module Extraction:
+
+- Extracted `lib/NTPSync/src/` -- all NTP logic moved from `main.cpp` into a dedicated module with 4 public functions: `ntp_init()`, `ntp_sync_startup()`, `ntp_resync()`, `ntp_check_time()`.
+- Module owns `ISO8601[21]` timestamp buffer and `NTP_response` flag (previously globals in main.cpp).
+- `NTP_ready()` is now a static (file-local) function used as `setSyncProvider()` callback -- not exposed in the public API.
+- `NTPClient` instance managed internally via `pTimeClient` pointer (created by `ntp_init()`, used by all other functions).
+- Module depends only on `NTP_Client.h`, `TimeLibEsp.h`, and `Settings.h` (for `timeZone` and `Universal_1_sec_Interval`). No dependency on `config.h`.
+- `main.cpp` reduced by ~60 lines: removed `WiFiUDP`, `NTPClient`, `NTP_response`, `ISO8601`, `NTP_ready()`, and `CheckTime()`. Replaced with `#include <ntp_sync.h>` and 4 function calls.
 
 Phase 4 -- Non-Blocking Feedback:
 
