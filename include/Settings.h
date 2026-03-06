@@ -23,15 +23,16 @@ char  responseTopic[] =   "iotdm-1/response/";
 char  manageTopic[]   =   "iotdevice-1/mgmt/manage";
 char  updateTopic[]   =   "iotdm-1/device/update";
 char  rebootTopic[]   =   "iotdm-1/mgmt/initiate/device/reboot";
+char  rgbTopic[]      =   "iotdm-1/device/ctrl";
 
 //--------------------------------------------------------------------------------------------------//Parametros de Tiempos de espera
 unsigned long Universal_1_sec_Interval  = 1000UL;                                                   //Variable configurable remotamente sobre el interbalo de publicacion
 unsigned long Btn_conf_Mode_Interval = 2000UL;                                                      //variable configurable remotamente sobre el intervalo de espera para modo de funcionamiento de boton.
 
 //-------- Umbral de señal WiFi baja (dBm) para alarmas y reportes
-#define RSSI_LOW_THRESHOLD -75
+int rssi_low_threshold = -75;
 
 //-------- Variables de ERROR EN ENVIO de paquetes de MQTT ANTES DE REINICIO
-#define FAILTRESHOLD 150
+int fail_threshold = 150;
 
 #endif // SETTINGS_H

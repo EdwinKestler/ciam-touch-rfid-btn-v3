@@ -31,7 +31,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | 4 | WiFi auto-connects | `Wifi conectado, Direccion de IP Asignado: x.x.x.x` | -- | -- | -- |
 | 5 | NTP sync (up to 5 attempts) | `servidor de NTP: <server>`, `NTP sync attempt #1`, `.....` (polling dots), `Receive NTP Response` | -- | -- | -- |
 | 6 | MQTT connect (up to 4 attempts) | `Conectando al servidor MQTT: <server>`, `MQTT attempt #1`, `MQTT connected` then `Mqtt Connection Done!, sending Device Data` | -- | -- | -- |
-| 7 | Subscribe topics | `se ha subscrito al Topico de respuestas` / `...Reincio Remoto` / `...Actulizaciones Remotas` | -- | -- | -- |
+| 7 | Subscribe topics | `se ha subscrito al Topico de respuestas` / `...Reincio Remoto` / `...Actulizaciones Remotas` / `...Control RGB` | -- | -- | -- |
 | 8 | Device info summary | `CHIPID:`, `HARDWARE:`, `FIRMWARE:`, `Servidor de NTP:`, `Servidor de MQTT:`, `Puerto:`, `Usuario de MQTT:`, `Client ID:` | White OFF | -- | IDLE (0) |
 
 **PASS criteria:** All serial messages appear in order. Device enters IDLE. No restart loops.
@@ -50,7 +50,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | 4 | MQTT attempt #3 | `MQTT attempt #3`, `failed, rc=<code>` | White flash (short) | -- | -- |
 | 5 | MQTT attempt #4 | `MQTT attempt #4`, `failed, rc=<code>` | White flash (short) | -- | -- |
 | 6 | WiFiManager fallback | `MQTT connect failed after 4 attempts, opening WiFiManager...` | Purple ON | Medium beep x2 | WiFi portal active |
-| 7 | Connect to `flatwifi` AP, correct MQTT settings | WiFiManager portal logs | -- | -- | -- |
+| 7 | Connect to `flatwifi` AP, correct MQTT/NTP/Device_ID settings | WiFiManager portal logs | -- | -- | -- |
 | 8 | Save and restart | -- | -- | -- | ESP.restart() |
 
 **PubSubClient return codes (rc= value):**
@@ -77,9 +77,9 @@ Open serial monitor at **115200 baud** before starting each test.
 | --- | --- | --- | --- | --- | --- |
 | 1 | Power on, hold button immediately | `estado del Boton: 1` | Green ON | -- | -- |
 | 2 | Keep holding through 2s window | WiFiManager portal starts | -- | -- | WiFi portal active |
-| 3 | Connect to AP, configure WiFi | WiFiManager logs | -- | -- | Continues to NTP/MQTT |
+| 3 | Connect to AP, configure WiFi + MQTT + NTP + Device_ID | WiFiManager logs | -- | -- | Continues to NTP/MQTT |
 
-**PASS criteria:** WiFiManager configuration portal is accessible. After saving credentials, device connects to WiFi and proceeds to MQTT setup.
+**PASS criteria:** WiFiManager configuration portal is accessible. Portal shows fields for: MQTT Server, Port, User, Password, NTP Server, NTP Interval, and Device_ID. After saving, device connects to WiFi and proceeds to MQTT setup.
 
 ---
 
@@ -92,9 +92,21 @@ Open serial monitor at **115200 baud** before starting each test.
 | 1 | Power on, wait for green LED to turn off | `estado del Boton: 0` | Green ON then OFF | -- | -- |
 | 2 | Hold button when red LED turns on | `Starting OTA` then `Ready` | Blue flash (medium) | Medium, Short, Medium beep pattern | RDY_TO_UPDATE_OTA (7) |
 | 3 | Device creates AP: `RFID_OTA` | -- | -- | -- | Stays in state 7 |
-| 4 | Upload firmware via ArduinoOTA (password: `FLATB0X_OTA`) | OTA progress logs | -- | -- | Stays in state 7 |
+| 4a | Upload firmware via ArduinoOTA (password: `FLATB0X_OTA`) | `OTA: update starting...`, `OTA progress: 0%`...`100%`, `OTA: update complete, rebooting` | Blue ON during upload | 3x short beep on complete | Reboots |
+| 4b | Upload with wrong password | `OTA error[4]: Auth Failed` | Red flash (medium) | 2x medium beep | Stays in state 7 |
+| 4c | Upload network error | `OTA error[<code>]: <type>` | Red flash (medium) | 2x medium beep | Stays in state 7 |
 
-**PASS criteria:** AP `RFID_OTA` appears. OTA upload requires password (`FLATB0X_OTA`). Upload without password is rejected. OTA upload with correct password completes successfully. Device loops in state 7 indefinitely (no IDLE transition).
+**OTA error codes:**
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Auth Failed |
+| 1 | Begin Failed |
+| 2 | Connect Failed |
+| 3 | Receive Failed |
+| 4 | End Failed |
+
+**PASS criteria:** AP `RFID_OTA` appears. OTA upload requires password (`FLATB0X_OTA`). Upload without password shows "Auth Failed" with red flash + beeps. Successful upload shows progress percentage, blue LED solid during transfer, triple beep on completion, then device reboots.
 
 ---
 
@@ -104,7 +116,7 @@ Open serial monitor at **115200 baud** before starting each test.
 
 | Step | Action | Expected Serial Output | LED | Buzzer | Next State |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Present RFID card to reader | Frame validated (STX/ETX check), then `RFID CARD ID IS: <card_id>` | Green flash (short) | Short beep | TRANSMIT_CARD_DATA (2) |
+| 1 | Present RFID card to reader | Frame validated (non-empty card ID check), then `RFID CARD ID IS: <card_id>` | Green flash (short) | Short beep | TRANSMIT_CARD_DATA (2) |
 | 2 | FSM enters state 2 | `CARD DATA SENT` | -- | -- | -- |
 | 3 | MQTT connection check | (if disconnected: `Attempting MQTT connection...` `connected`) | White flash (if reconnecting) | Short beep (if reconnecting) | -- |
 | 4 | CheckTime() runs | (if time not synced: `Time not Sync, Syncronizing time`) | -- | -- | -- |
@@ -150,13 +162,13 @@ Open serial monitor at **115200 baud** before starting each test.
 
 ## Flow 6b: IDLE -- RFID Invalid Frame (noise rejection)
 
-**Precondition:** Device in IDLE state. RFID reader sends garbled/noisy data (no proper STX/ETX framing).
+**Precondition:** Device in IDLE state. RFID reader sends garbled/incomplete data that produces no valid card ID bytes at positions 4-7.
 
 | Step | Action | Expected Serial Output | LED | Buzzer | Next State |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Noisy data arrives on RFID serial | `RFID: invalid frame, discarding` | NO flash | NO beep | Stays IDLE (0) |
+| 1 | Noisy/incomplete data arrives on RFID serial | `RFID: invalid frame, discarding` | NO flash | NO beep | Stays IDLE (0) |
 
-**PASS criteria:** No state transition. No LED. No buzzer. No MQTT publish. Frame discarded silently with serial warning. Buffer cleared.
+**PASS criteria:** No state transition. No LED. No buzzer. No MQTT publish. Frame discarded with serial warning. Buffer cleared.
 
 ---
 
@@ -201,7 +213,7 @@ Open serial monitor at **115200 baud** before starting each test.
 
 ## Flow 9: 30-Minute Device Update (RSSI normal)
 
-**Precondition:** Device in IDLE state for > 30 minutes. WiFi RSSI >= -75 dBm.
+**Precondition:** Device in IDLE state for > 30 minutes. WiFi RSSI >= `rssi_low_threshold` (default -75 dBm).
 
 | Step | Action | Expected Serial Output | LED | Buzzer | Next State |
 | --- | --- | --- | --- | --- | --- |
@@ -226,7 +238,7 @@ Open serial monitor at **115200 baud** before starting each test.
 
 ## Flow 10: 30-Minute Device Update (RSSI low -- alarm)
 
-**Precondition:** Device in IDLE state for > 30 minutes. WiFi RSSI < -75 dBm (weak signal).
+**Precondition:** Device in IDLE state for > 30 minutes. WiFi RSSI < `rssi_low_threshold` (default -75 dBm) (weak signal).
 
 | Step | Action | Expected Serial Output | LED | Buzzer | Next State |
 | --- | --- | --- | --- | --- | --- |
@@ -302,15 +314,16 @@ Open serial monitor at **115200 baud** before starting each test.
 
 ## Flow 14: MQTT Failure Threshold Restart
 
-**Precondition:** Device in IDLE state. `failed` counter reaches 150 (FAILTRESHOLD).
+**Precondition:** Device in IDLE state. `failed` counter reaches `fail_threshold` (default 150, configurable via update topic).
 
 | Step | Action | Expected Serial Output | LED | Buzzer | Next State |
 | --- | --- | --- | --- | --- | --- |
-| 1 | failed >= 150 detected in IDLE | -- | -- | -- | ESP.restart() |
+| 1 | failed >= fail_threshold detected in IDLE | -- | -- | -- | ESP.restart() |
 
 **PASS criteria:** Device restarts automatically. Counters (failed, published, sent) reset to 0 before restart. Device goes through normal startup.
 
 **Note on failed counter behavior:** The `failed` counter halves on each successful publish (instead of zeroing). This means:
+
 - 10 failures + 1 success = 5 remaining failures
 - 149 failures + 1 success = 74 remaining failures
 - Persistent degradation still accumulates toward threshold
@@ -348,16 +361,67 @@ Open serial monitor at **115200 baud** before starting each test.
 
 ---
 
-## Flow 17: MQTT Remote Update (config push)
+## Flow 17: MQTT Remote Update -- Parameter Change
 
 **Precondition:** Device in IDLE state, MQTT connected, subscribed to update topic.
 
 | Step | Action | Expected Serial Output | LED | Buzzer | Next State |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Publish JSON to `iotdm-1/device/update` | `Mensaje recibido desde el Topico: iotdm-1/device/update` | -- | -- | -- |
-| 2 | Payload parsed | `Update payload:` then pretty-printed JSON | -- | -- | Stays in current state |
+| 1 | Publish `{"publish_interval": 2000}` to `iotdm-1/device/update` | `Mensaje recibido desde el Topico: iotdm-1/device/update` | -- | -- | -- |
+| 2 | Payload parsed and applied | `Update payload:` then pretty-printed JSON, then `Updated publish_interval: 2000` | -- | -- | Stays in current state |
 
-**PASS criteria:** JSON payload is parsed and printed to serial. No state change. No restart.
+**Configurable parameters:** `publish_interval`, `btn_hold_time`, `tono_corto`, `tono_medio`, `tono_largo`, `flash_corto`, `flash_medio`, `flash_largo`, `fail_threshold`, `rssi_threshold`
+
+**Multi-parameter example:**
+
+```json
+{"publish_interval": 500, "fail_threshold": 100, "rssi_threshold": -80}
+```
+
+**PASS criteria:** Each updated parameter prints `Updated <key>: <value>` to serial. Parameters not included in the payload remain unchanged. Changes are runtime only (reset on reboot).
+
+---
+
+## Flow 17b: MQTT Remote Update -- OTA Trigger
+
+**Precondition:** Device in IDLE state, MQTT connected, subscribed to update topic.
+
+| Step | Action | Expected Serial Output | LED | Buzzer | Next State |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Publish `{"ota": true}` to `iotdm-1/device/update` | `Mensaje recibido desde el Topico: iotdm-1/device/update` | -- | -- | -- |
+| 2 | OTA mode triggered | `Remote OTA trigger received`, `Starting OTA`, `Ready` | Blue flash (medium) | Medium, Short, Medium beep | RDY_TO_UPDATE_OTA (7) |
+| 3 | Device creates AP: `RFID_OTA` | -- | -- | -- | Stays in state 7 |
+
+**PASS criteria:** Device enters OTA mode exactly as in Flow 3 (step 2 onward). AP `RFID_OTA` appears. OTA upload proceeds normally.
+
+---
+
+## Flow 17c: MQTT Remote Control -- RGB Color
+
+**Precondition:** Device in IDLE state, MQTT connected, subscribed to ctrl topic.
+
+| Step | Action | Expected Serial Output | LED | Buzzer | Next State |
+| --- | --- | --- | --- | --- | --- |
+| 1a | Publish `{"r": 255, "g": 0, "b": 0}` to `iotdm-1/device/ctrl` | `Mensaje recibido desde el Topico: iotdm-1/device/ctrl`, `RGB set to R:255 G:0 B:0` | Red LED at full brightness | -- | Stays in current state |
+| 1b | Publish `{"hex": "#00FF00"}` to `iotdm-1/device/ctrl` | `RGB set to R:0 G:255 B:0` | Green LED at full brightness | -- | Stays in current state |
+| 1c | Publish `{"cmd": "on"}` to `iotdm-1/device/ctrl` | `RGB set to R:255 G:255 B:255` | All LEDs max (white) | -- | Stays in current state |
+| 1d | Publish `{"cmd": "off"}` to `iotdm-1/device/ctrl` | `RGB set to R:0 G:0 B:0` | All LEDs off | -- | Stays in current state |
+
+**PASS criteria:** LED color matches the requested RGB values. PWM dimming works (e.g., `{"r": 128, "g": 0, "b": 0}` produces half-brightness red). No state change.
+
+---
+
+## Flow 17d: MQTT Remote Control -- Buzzer
+
+**Precondition:** Device in IDLE state, MQTT connected, subscribed to ctrl topic.
+
+| Step | Action | Expected Serial Output | LED | Buzzer | Next State |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Publish `{"beep": 3}` to `iotdm-1/device/ctrl` | `Mensaje recibido desde el Topico: iotdm-1/device/ctrl`, `Buzzer: 3 seconds` | -- | Buzzer ON for 3 seconds | Stays in current state |
+
+**Note:** Buzzer is blocking -- the device will not process other MQTT messages until the beep finishes. Duration is clamped to 1-300 seconds. Accepts both integer (`{"beep": 5}`) and string (`{"beep": "60"}`) values.
+
+**PASS criteria:** Buzzer sounds for the specified duration. Serial shows the parsed duration. No state change.
 
 ---
 
@@ -393,7 +457,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | 1 | Normal Startup | Power on (no button) | Serial summary, enters IDLE | [ ] |
 | 1b | MQTT Connect Failure | Broker unreachable at startup | 4 retries, WiFiManager fallback, rc= codes logged | [ ] |
 | 2 | WiFi Config Portal | Button in 1st 2s | WiFiManager AP accessible | [ ] |
-| 3 | OTA Update Mode | Button in 2nd 2s | `RFID_OTA` AP, OTA password required, stays in state 7 | [ ] |
+| 3 | OTA Update Mode | Button in 2nd 2s | `RFID_OTA` AP, OTA password required, progress/error feedback | [ ] |
 | 4 | Card Read (new) | Present new RFID card | Green flash, beep, JSON published | [ ] |
 | 5 | Card Read (duplicate) | Same card within 5s | "Duplicate read, ignoring", NO flash/beep | [ ] |
 | 6 | Card Read (after cooldown) | Same card after > 5s | Accepted as new read | [ ] |
@@ -405,10 +469,13 @@ Open serial monitor at **115200 baud** before starting each test.
 | 11 | 60-min NTP Resync | Timer expires | NTP sync attempted (5 retries max) | [ ] |
 | 12 | Low WiFi Alarm | RSSI < -75 in IDLE | White flash, max 4 beeps, stays IDLE | [ ] |
 | 13 | 24-Hour Reset | hora > 24 | "24h Normal Reset" published, then restart | [ ] |
-| 14 | Fail Threshold Restart | failed >= 150 | Device restarts, counters zeroed | [ ] |
+| 14 | Fail Threshold Restart | failed >= fail_threshold | Device restarts, counters zeroed | [ ] |
 | 15 | MQTT Reconnect | Broker unreachable | Max 3 retries (~9s), then continues | [ ] |
 | 16 | Remote Reboot | MQTT reboot message | "Reiniciando...", device reboots | [ ] |
-| 17 | Remote Update | MQTT update message | JSON printed, no state change | [ ] |
+| 17 | Remote Update (params) | MQTT update JSON | Parameters applied, "Updated" logs | [ ] |
+| 17b | Remote OTA Trigger | `{"ota": true}` on update topic | Enters OTA mode (same as Flow 3) | [ ] |
+| 17c | Remote RGB Control | RGB/hex/on/off on ctrl topic | LED color changes, PWM dimming works | [ ] |
+| 17d | Remote Buzzer | `{"beep": N}` on ctrl topic | Buzzer sounds for N seconds | [ ] |
 | 18 | Response Message | MQTT response message | JSON printed, no state change | [ ] |
 | 19 | Unknown State | Invalid fsm_state value | "FSM: unknown state", recovers to IDLE | [ ] |
 
@@ -423,6 +490,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | Red | Rojo | D8 | Failure (publish failed) / Low WiFi alarm in updateDeviceInfo |
 | White | Blanco | D6+D7+D8 | MQTT reconnect attempt / Low WiFi in checkalarms / Turned off after button publish |
 | Purple | Purpura | D4 | MQTT reconnect failure |
+| Custom | via MQTT | D6+D7+D8 | Remote RGB control via `iotdm-1/device/ctrl` (PWM 0-255 per channel) |
 
 ## Buzzer Reference
 
@@ -431,15 +499,16 @@ Open serial monitor at **115200 baud** before starting each test.
 | Short | tono_corto | Card read, button press, publish success, MQTT reconnect attempt |
 | Medium | tono_medio | MQTT reconnect fail, low WiFi alarm in updateDeviceInfo, OTA mode |
 | Long | tono_largo | Low WiFi alarm in checkalarms (up to 4x) |
+| Remote | via MQTT | Remote buzzer activation via `{"beep": N}` on ctrl topic (1-300 seconds, blocking) |
 
 ## Counter Behavior Reference
 
 | Counter | Incremented | Decremented/Reset | Threshold |
 | --- | --- | --- | --- |
-| `sent` | Every publish attempt | Reset to 0 on FAILTRESHOLD restart | -- |
-| `published` | Every successful publish | Reset to 0 on FAILTRESHOLD restart | -- |
-| `failed` | Every failed publish (+1) | Halved on success (/2) | >= 150 triggers restart |
-| `BeepSignalWarning` | Each low-RSSI beep (+1) | Reset to 0 when RSSI >= -75 | Max 4 beeps |
+| `sent` | Every publish attempt | Reset to 0 on fail_threshold restart | -- |
+| `published` | Every successful publish | Reset to 0 on fail_threshold restart | -- |
+| `failed` | Every failed publish (+1) | Halved on success (/2) | >= `fail_threshold` (default 150) triggers restart |
+| `BeepSignalWarning` | Each low-RSSI beep (+1) | Reset to 0 when RSSI >= `rssi_low_threshold` | Max 4 beeps |
 | `hora` | Every 60 minutes (+1) | Reset to 0 on 24h restart | > 24 triggers restart |
 | `Numero_ID_Evento_Boton` | Each button press (+1) | Never reset (session lifetime) | -- |
 | `Numero_ID_Eventos_Tarjeta` | Each new card publish (+1) | Never reset (session lifetime) | -- |

@@ -27,6 +27,12 @@ void BlinkRGB::Change_RGB_State(){
 }
 */
 
+void BlinkRGB::SetPWM(int value) {
+    // Map 0-255 to ESP8266 analogWrite range 0-1023
+    int pwm = constrain(value, 0, 255) * 4;
+    analogWrite(_pin, pwm);
+}
+
 void BlinkRGB::Flash(unsigned long flash_interval) {
     _flash_interval = flash_interval;
     digitalWrite(_pin, HIGH);
@@ -55,6 +61,14 @@ void BlinkColor::COff() {
     digitalWrite(_pin2, LOW);
 }
 
+
+void BlinkColor::SetRGB(int r, int g, int b) {
+    // Map 0-255 to ESP8266 analogWrite range 0-1023
+    // pin0=Blue(D6), pin1=Green(D7), pin2=Red(D8) per main.cpp wiring
+    analogWrite(_pin2, constrain(r, 0, 255) * 4);
+    analogWrite(_pin1, constrain(g, 0, 255) * 4);
+    analogWrite(_pin0, constrain(b, 0, 255) * 4);
+}
 
 void BlinkColor::CFlash(unsigned long Cflash_interval) {
     _Cflash_interval = Cflash_interval;

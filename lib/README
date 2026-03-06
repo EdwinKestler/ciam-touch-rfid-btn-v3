@@ -6,17 +6,20 @@ IoT device firmware for an ESP8266-based (WeMos D1 mini) RFID and capacitive tou
 
 ## Features
 
-- RFID card reading via SoftwareSerial (9600 baud)
+- RFID card reading via SoftwareSerial (9600 baud) with frame validation
 - Capacitive touch button detection
-- MQTT event publishing to Flatbox IoT platform (JSON format)
+- MQTT event publishing to Flatbox IoT platform (JSON format) with truncation detection
 - WiFi configuration portal via WiFiManager (on-demand)
-- OTA (Over-the-Air) firmware updates
-- NTP time synchronization
+- OTA (Over-the-Air) firmware updates (password-protected)
+- NTP time synchronization (5-retry cap on startup and resync)
 - RGB LED and piezo buzzer feedback
 - Device health monitoring (WiFi RSSI, message counters, battery voltage)
 - MQTT connect safeguard: 4 retries then WiFiManager fallback for config correction
-- Automatic restart on persistent MQTT failures (150 threshold)
-- LittleFS-based persistent configuration storage
+- Automatic restart on persistent MQTT failures (configurable threshold, default 150)
+- LittleFS-based persistent configuration storage (MQTT, NTP, Device_ID all configurable)
+- Remote RGB LED control via MQTT (RGB values, hex color, on/off)
+- Remote buzzer activation via MQTT (configurable duration)
+- Remote parameter update via MQTT (publish interval, thresholds, tone/flash durations, OTA trigger)
 
 ## Hardware
 
@@ -36,12 +39,12 @@ IoT device firmware for an ESP8266-based (WeMos D1 mini) RFID and capacitive tou
 
 ```
 ├── include/
-│   └── Settings.h              # Device config, MQTT topics, credentials, thresholds
+│   └── Settings.h              # OTA credentials, MQTT topics, version info, runtime-configurable thresholds
 ├── lib/
 │   ├── Buzzer/src/             # BTN_Bzzr - piezo buzzer control
 │   ├── Flatbox_publish/src/    # flatbox - MQTT JSON payload formatting
 │   ├── NTP_Client/src/         # NTPClient - UDP time synchronization
-│   ├── RGB/src/                # BlinkRGB / BlinkColor - LED control
+│   ├── RGB/src/                # BlinkRGB / BlinkColor - LED control (digital + PWM)
 │   ├── TimeESP/src/            # TimeLibEsp - date/time management
 │   └── TouchBtn/src/           # TouchPadButton - capacitive input
 ├── src/
@@ -139,10 +142,11 @@ The firmware runs a priority-based finite state machine with 7 states. Event pri
 
 ## MQTT Communication
 
-- **Broker:** Configurable (default: `adnode.flatbox.io:1883`)
-- **Auth:** Username + token-based
+- **Broker:** Configurable via WiFiManager (default: `172.18.98.142:1883`)
+- **Auth:** Username + password (configurable via WiFiManager)
+- **Transport:** Plaintext TCP (no TLS)
 - **Publish topic:** `iot-2/evt/status/fmt/json`
-- **Subscribe topics:** Device management, response, update, and reboot channels
+- **Subscribe topics:** Device management, response, update, reboot, and control channels
 
 ### Event Payload Example
 
@@ -150,13 +154,76 @@ The firmware runs a priority-based finite state machine with 7 states. Event pri
 {
   "d": {
     "botondata": {
-      "ChipID": "device_id",
-      "IDEventoBoton": "CIAM-1",
-      "Tstamp": "2026-03-04T12:00:00"
+      "ChipID": "782184",
+      "IDEventoBoton": "782184-1",
+      "Tstamp": "2026-03-05T17:17:56"
     }
   }
 }
 ```
+
+### Subscribe Topics
+
+| Topic | Purpose |
+| ------- | --------- |
+| `iotdm-1/response/` | Server acknowledgment messages (logged to serial) |
+| `iotdm-1/device/update` | Remote parameter updates (see table below) |
+| `iotdm-1/mgmt/initiate/device/reboot` | Remote reboot (any payload triggers `ESP.reset()`) |
+| `iotdm-1/device/ctrl` | RGB LED and buzzer control |
+
+### Remote Control Commands (`iotdm-1/device/ctrl`)
+
+**RGB color (0-255 per channel, PWM):**
+
+```json
+{"r": 255, "g": 128, "b": 0}
+```
+
+**Hex color (with or without `#`):**
+
+```json
+{"hex": "#FF8000"}
+```
+
+**On/Off (all channels max or off):**
+
+```json
+{"cmd": "on"}
+{"cmd": "off"}
+```
+
+**Buzzer activation (duration in seconds, 1-300):**
+
+```json
+{"beep": 5}
+{"beep": "60"}
+```
+
+Note: The buzzer command is blocking -- the device will not process other MQTT messages until the beep completes.
+
+### Remote Parameter Updates (`iotdm-1/device/update`)
+
+All parameters are optional -- include only the ones you want to change. Multiple parameters can be sent in a single message. Changes are **runtime only** and reset to defaults on reboot.
+
+```json
+{"publish_interval": 2000, "fail_threshold": 100, "rssi_threshold": -80}
+```
+
+| JSON Key | Type | Default | What it controls |
+| ---------- | ------ | --------- | ----------------- |
+| `publish_interval` | unsigned long | 1000 | Base time unit (ms) -- affects publish rate, NTP resync (60x), device update (30x), hourly reset (3600x) |
+| `btn_hold_time` | unsigned long | 2000 | Button hold duration (ms) for entering config/OTA mode at startup |
+| `tono_corto` | unsigned long | 250 | Short beep duration (ms) |
+| `tono_medio` | unsigned long | 500 | Medium beep duration (ms) |
+| `tono_largo` | unsigned long | 1000 | Long beep duration (ms) |
+| `flash_corto` | unsigned long | 250 | Short LED flash duration (ms) |
+| `flash_medio` | unsigned long | 500 | Medium LED flash duration (ms) |
+| `flash_largo` | unsigned long | 1000 | Long LED flash duration (ms) |
+| `fail_threshold` | int | 150 | MQTT publish failures before auto-reboot |
+| `rssi_threshold` | int | -75 | WiFi signal alarm threshold (dBm) |
+| `ota` | bool | -- | Set `true` to trigger OTA mode remotely |
+
+Current parameter values are reported in the `manageTopic` metadata payload on device startup.
 
 ## Configuration (LittleFS)
 
@@ -164,20 +231,20 @@ Stored as `/config.json` on the device flash:
 
 | Parameter             | Default              |
 |-----------------------|----------------------|
-| MQTT_Server           | adnode.flatbox.io    |
+| MQTT_Server           | 172.18.98.142        |
 | MQTT_Port             | 1883                 |
-| MQTT_User             | demo                 |
-| MQTT_Password         | demo                 |
+| MQTT_User             | esp8266              |
+| MQTT_Password         | esp8266              |
 | NTPClient_SERVER      | time-a-g.nist.gov    |
 | NTPClient_interval    | 60000 (ms)           |
 | Device_ID             | CIAM                 |
 
 ## Startup Behavior
 
-1. Load config from LittleFS
+1. Load config from LittleFS, build MQTT client ID from Device_ID
 2. **First 2-second window:** Hold button to enter WiFi configuration portal
-3. **Second 2-second window:** Hold button to enter OTA update mode
-4. Otherwise: Auto-connect WiFi, sync NTP, connect MQTT (4 retries, falls back to WiFiManager on failure), enter IDLE state
+3. **Second 2-second window:** Hold button to enter OTA update mode (password-protected)
+4. Otherwise: Auto-connect WiFi, sync NTP (5 retries max), connect MQTT (4 retries, falls back to WiFiManager on failure), enter IDLE state
 
 ## Build
 
@@ -194,6 +261,26 @@ pio run --target upload
 pio device monitor -b 115200
 ```
 
+### OTA Upload (Over-the-Air)
+
+1. Power on device, hold button during 2nd 2-second window (red LED on)
+1. Serial shows `Starting OTA` then `Ready`
+1. Connect your computer to the `RFID_OTA` WiFi AP (password: `FLATB0X_OTA`)
+1. Device IP is `192.168.4.1` (ESP8266 AP default)
+1. Upload firmware:
+
+```bash
+# PlatformIO CLI
+pio run --target upload --upload-port 192.168.4.1 --upload-flags="--auth=FLATB0X_OTA"
+
+# Or directly via espota.py
+python espota.py -i 192.168.4.1 -p 8266 -a FLATB0X_OTA -f .pio/build/d1_mini/firmware.bin
+```
+
+1. Serial monitor shows progress (`OTA progress: 0%`...`100%`) and device reboots on completion
+
+**OTA password:** `FLATB0X_OTA` (defined in `Settings.h`, protects both WiFi AP and upload auth)
+
 ## Dependencies
 
 - ESP8266WiFi / WiFiUdp
@@ -206,9 +293,11 @@ pio device monitor -b 115200
 
 ## Known Limitations
 
-- NTP synchronization can be slow on startup (mitigated with 5-retry loop)
-- Maximum MQTT payload buffer: 300 bytes
-- Credentials are stored in source code (Settings.h)
+- NTP synchronization can be slow on startup (mitigated with 5-retry loop, continues without time if all fail)
+- Maximum MQTT payload buffer: 300 bytes (truncation detected and logged)
+- MQTT connection is plaintext (no TLS) -- acceptable for LAN deployment, not for internet-facing brokers
+- OTA credentials are stored in source code (Settings.h); MQTT credentials are in LittleFS config.json
+- RFID frame validation is length-based only (no checksum verification -- reader-model-dependent)
 
 ## Changelog
 
@@ -295,9 +384,25 @@ Pre-release blocker fixes:
 Low-priority fixes:
 
 - **BUG FIX:** `tagID[DataLenght]` was 10 bytes but `readTag()` wrote up to index 12 (13-byte RFID frame). Added `RFID_FRAME_SIZE` (13) constant and resized `tagID[]` to match.
-- Added RFID frame validation in `readTag()` -- checks STX (0x02) at byte 0 and ETX (0x03) at byte 12. Discards invalid frames from noisy serial line before processing.
+- Added RFID frame validation in `readTag()` -- checks that card ID bytes (positions 4-7) produced a non-empty string. Discards empty/incomplete frames from noisy serial line before processing.
 - Changed `FirmwareVersion` / `HardwareVersion` from `String` to `const char[]` in Settings.h (saves ~56 bytes heap)
 - Moved `DEVICE_ID` from compile-time `#define` in Settings.h to runtime-configurable field in LittleFS `config.json`. Now editable via WiFiManager portal. Default remains "CIAM" for backwards compatibility.
+
+OTA improvements:
+
+- Added `ArduinoOTA` event handlers (`onStart`, `onEnd`, `onProgress`, `onError`) -- OTA upload now shows progress percentage, blue LED solid during transfer, triple beep on success, red flash + double beep on failure with error type logged to serial
+- Wrapped OTA serial strings in `F()` macro (saves 20 bytes RAM)
+
+Remote command infrastructure:
+
+- Added MQTT subscribe topic `iotdm-1/device/ctrl` for RGB LED and buzzer control
+- Added `BlinkRGB::SetPWM(int value)` -- per-channel PWM control (0-255 mapped to ESP8266 analogWrite 0-1023)
+- Added `BlinkColor::SetRGB(int r, int g, int b)` -- full RGB color setting with correct pin mapping
+- `handleRGBCommand()` parses 3 JSON formats: `{r,g,b}`, `{hex}`, `{cmd: on/off}` plus `{beep}` for buzzer
+- Rewrote `handleUpdate()` -- now parses and applies 10 configurable parameters from JSON payload (was log-only)
+- Added remote OTA trigger via `{"ota": true}` on update topic
+- Converted `FAILTRESHOLD` and `RSSI_LOW_THRESHOLD` from `#define` to runtime variables (`fail_threshold`, `rssi_low_threshold`) so they can be changed remotely
+- Updated `initManagedDevice()` metadata to report all configurable parameter values to broker on startup
 
 Code quality:
 

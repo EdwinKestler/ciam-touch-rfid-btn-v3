@@ -308,12 +308,37 @@ void BOOT_TO_Wifi_Manager(){
 }
 //--------------------------------------------------------------------------------------------------//funcion donde se define el inicio a Actulizacion por OTA
 void BOOT_TO_OTA() {
-  Serial.println("Starting OTA");
+  Serial.println(F("Starting OTA"));
   WiFi.mode(WIFI_AP);
   WiFi.softAP(ssid_OTA, password_OTA);
   ArduinoOTA.setPassword(password_OTA);
+  ArduinoOTA.onStart([]() {
+    Serial.println(F("OTA: update starting..."));
+    Azul.This_RGB_State(HIGH);
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println(F("\nOTA: update complete, rebooting"));
+    Azul.This_RGB_State(LOW);
+    alarm.Beep(tono_corto);
+    alarm.Beep(tono_corto);
+    alarm.Beep(tono_corto);
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("OTA progress: %u%%\r", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("OTA error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println(F("Auth Failed"));
+    else if (error == OTA_BEGIN_ERROR) Serial.println(F("Begin Failed"));
+    else if (error == OTA_CONNECT_ERROR) Serial.println(F("Connect Failed"));
+    else if (error == OTA_RECEIVE_ERROR) Serial.println(F("Receive Failed"));
+    else if (error == OTA_END_ERROR) Serial.println(F("End Failed"));
+    Rojo.Flash(flash_medio);
+    alarm.Beep(tono_medio);
+    alarm.Beep(tono_medio);
+  });
   ArduinoOTA.begin();
-  Serial.println("Ready");
+  Serial.println(F("Ready"));
   Azul.Flash(flash_medio);
   fsm_state = STATE_RDY_TO_UPDATE_OTA;
   alarm.Beep(tono_medio);
@@ -322,16 +347,64 @@ void BOOT_TO_OTA() {
 }
 
 //--------------------------------------------------------------------------------------------------//Funcion Remota para manejar Actulizacion de parametros por la via remota (MQTT SERVER)
-void handleUpdate(byte* payload) {                                                                  //La Funcion recibe lo que obtenga Payload de la Funcion Callback que vigila el Topico de subcripcion (Subscribe TOPIC)
-  JsonDocument doc;                                                                                 //Documento JSON para almacenar los mensajes
-  DeserializationError error = deserializeJson(doc, (char*)payload);                                //Deserializamos el payload al documento JSON
-  if (error) {                                                                                      //Si no se puede deserializar el Json
-    Serial.println(F("ERROR en la Letura del JSON Entrante"));                                      //Se imprime un mensaje de Error en la lectura del JSON
-    return;                                                                                         //Nos salimos de la funcion
-  }                                                                                                 //se cierra el condicional
-  Serial.println(F("Update payload:"));                                                             //si se pudo encontrar la raiz del objeto JSON se imprime u mensje
-  serializeJsonPretty(doc, Serial);                                                                 //y se imprime el mensaje recibido al Serial
-  Serial.println();                                                                                 //dejamos una linea de pormedio para continuar con los mensajes de debugging
+void handleUpdate(byte* payload) {
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, (char*)payload);
+  if (error) {
+    Serial.println(F("ERROR en la Letura del JSON Entrante"));
+    return;
+  }
+  Serial.println(F("Update payload:"));
+  serializeJsonPretty(doc, Serial);
+  Serial.println();
+
+  // Apply configurable parameters if present
+  if (doc["publish_interval"].is<unsigned long>()) {
+    Universal_1_sec_Interval = doc["publish_interval"];
+    Serial.printf("Updated publish_interval: %lu\n", Universal_1_sec_Interval);
+  }
+  if (doc["btn_hold_time"].is<unsigned long>()) {
+    Btn_conf_Mode_Interval = doc["btn_hold_time"];
+    Serial.printf("Updated btn_hold_time: %lu\n", Btn_conf_Mode_Interval);
+  }
+  if (doc["tono_corto"].is<unsigned long>()) {
+    tono_corto = doc["tono_corto"];
+    Serial.printf("Updated tono_corto: %lu\n", tono_corto);
+  }
+  if (doc["tono_medio"].is<unsigned long>()) {
+    tono_medio = doc["tono_medio"];
+    Serial.printf("Updated tono_medio: %lu\n", tono_medio);
+  }
+  if (doc["tono_largo"].is<unsigned long>()) {
+    tono_largo = doc["tono_largo"];
+    Serial.printf("Updated tono_largo: %lu\n", tono_largo);
+  }
+  if (doc["flash_corto"].is<unsigned long>()) {
+    flash_corto = doc["flash_corto"];
+    Serial.printf("Updated flash_corto: %lu\n", flash_corto);
+  }
+  if (doc["flash_medio"].is<unsigned long>()) {
+    flash_medio = doc["flash_medio"];
+    Serial.printf("Updated flash_medio: %lu\n", flash_medio);
+  }
+  if (doc["flash_largo"].is<unsigned long>()) {
+    flash_largo = doc["flash_largo"];
+    Serial.printf("Updated flash_largo: %lu\n", flash_largo);
+  }
+  if (doc["fail_threshold"].is<int>()) {
+    fail_threshold = doc["fail_threshold"];
+    Serial.printf("Updated fail_threshold: %d\n", fail_threshold);
+  }
+  if (doc["rssi_threshold"].is<int>()) {
+    rssi_low_threshold = doc["rssi_threshold"];
+    Serial.printf("Updated rssi_threshold: %d\n", rssi_low_threshold);
+  }
+
+  // Remote OTA trigger
+  if (doc["ota"].is<bool>() && doc["ota"].as<bool>()) {
+    Serial.println(F("Remote OTA trigger received"));
+    BOOT_TO_OTA();
+  }
 }
 
 //--------------------------------------------------------------------------------------------------//Funcion remota para mandar a dormir el esp despues de enviar un RFID
@@ -346,6 +419,76 @@ void handleResponse (byte* payloadrsp) {
   Serial.println(F("Response payload:"));                                                           //si se pudo encontrar la raiz del objeto JSON se imprime u mensje
   serializeJson(doc, Serial);                                                                       //y se imprime el mensaje recibido al Serial
   Serial.println();                                                                                 //dejamos una linea de pormedio para continuar con los mensajes de debugging
+}
+//--------------------------------------------------------------------------------------------------//Funcion para parsear un valor hex de un caracter
+static int hexCharToInt(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return 10 + c - 'a';
+  if (c >= 'A' && c <= 'F') return 10 + c - 'A';
+  return -1;
+}
+//--------------------------------------------------------------------------------------------------//Funcion para control remoto de RGB via MQTT
+void handleRGBCommand(byte* payload) {
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, (char*)payload);
+  if (error) {
+    Serial.println(F("RGB: JSON parse error"));
+    return;
+  }
+
+  int r = -1, g = -1, b = -1;
+
+  // Check for buzzer command (accepts int or string)
+  if (doc["beep"].is<int>() || doc["beep"].is<const char*>()) {
+    int seconds = doc["beep"].is<int>() ? (int)doc["beep"] : atoi(doc["beep"].as<const char*>());
+    seconds = constrain(seconds, 1, 300);
+    Serial.printf("Buzzer: %d seconds\n", seconds);
+    alarm.Beep((unsigned long)seconds * 1000UL);
+    return;
+  }
+
+  // Check for on/off command
+  if (doc["cmd"].is<const char*>()) {
+    const char* cmd = doc["cmd"];
+    if (strcmp(cmd, "on") == 0) {
+      r = 255; g = 255; b = 255;
+    } else if (strcmp(cmd, "off") == 0) {
+      r = 0; g = 0; b = 0;
+    } else {
+      Serial.print(F("RGB: unknown cmd: "));
+      Serial.println(cmd);
+      return;
+    }
+  }
+  // Check for hex color
+  else if (doc["hex"].is<const char*>()) {
+    const char* hex = doc["hex"];
+    if (hex[0] == '#') hex++;  // skip leading #
+    if (strlen(hex) == 6) {
+      r = hexCharToInt(hex[0]) * 16 + hexCharToInt(hex[1]);
+      g = hexCharToInt(hex[2]) * 16 + hexCharToInt(hex[3]);
+      b = hexCharToInt(hex[4]) * 16 + hexCharToInt(hex[5]);
+    } else {
+      Serial.println(F("RGB: invalid hex format, expected 6 chars"));
+      return;
+    }
+  }
+  // Check for r, g, b values
+  else if (doc["r"].is<int>() && doc["g"].is<int>() && doc["b"].is<int>()) {
+    r = doc["r"];
+    g = doc["g"];
+    b = doc["b"];
+  }
+  else {
+    Serial.println(F("RGB: payload must have {r,g,b}, {hex}, or {cmd}"));
+    return;
+  }
+
+  // Apply the color
+  Rojo.SetPWM(r);
+  Verde.SetPWM(g);
+  Azul.SetPWM(b);
+  Serial.printf("RGB set to R:%d G:%d B:%d\n", r, g, b);
 }
 //--------------------------------------------------------------------------------------------------//Funcion de vigilancia sobre mensajeria remota desde el servicion de IBM bluemix
 void callback(char* topic, byte* payload, unsigned int payloadLength) {                             //Esta Funcion vigila los mensajes que se reciben por medio de los Topicos de respuesta;
@@ -364,6 +507,10 @@ void callback(char* topic, byte* payload, unsigned int payloadLength) {         
 
   if (strcmp (updateTopic, topic) == 0) {                                                           //verificar si el topico conicide con el Topico updateTopic[] definido en el archivo settings.h local
     handleUpdate(payload);                                                                          //enviar a la funcion handleUpdate el contenido del mensaje para su parseo.
+  }
+
+  if (strcmp (rgbTopic, topic) == 0) {                                                              //verificar si el topico conicide con el Topico rgbTopic[] definido en el archivo settings.h local
+    handleRGBCommand(payload);                                                                      //enviar a la funcion handleRGBCommand el contenido del mensaje para control de RGB
   }
 }
 //--------------------------------------------------------------------------------------------------//definicion de Cliente WIFI para ESP8266 y cliente de publicacion y subcripcion
@@ -443,15 +590,29 @@ void initManagedDevice() {
     Serial.println(F("se ha subscrito al Topico de Actulizaciones Remotas"));                       //si se logro la sibscripcion entonces imprimir un mensaje de exito
   }
   else {
-    Serial.println(F("No se pudo Subscribir al Topico de Actulizacione Remotas"));                  //Si no se logra la subcripcion imprimir un mensaje de error         
+    Serial.println(F("No se pudo Subscribir al Topico de Actulizacione Remotas"));                  //Si no se logra la subcripcion imprimir un mensaje de error
   }
-  
+
+  if (client.subscribe(rgbTopic)) {                                                                 //Subscribir el nodo al servicio de mensajeria de control RGB
+    Serial.println(F("se ha subscrito al Topico de Control RGB"));                                   //si se logro la sibscripcion entonces imprimir un mensaje de exito
+  }
+  else {
+    Serial.println(F("No se pudo Subscribir al Topico de Control RGB"));                             //Si no se logra la subcripcion imprimir un mensaje de error
+  }
+
   JsonDocument doc;
   JsonObject d = doc["d"].to<JsonObject>();
   JsonObject metadata = d["metadata"].to<JsonObject>();
-  metadata["Universal_Interval"] = Universal_1_sec_Interval;
-  metadata["UPDATE_TIME"] = 60*Universal_1_sec_Interval;
-  metadata["Norman_Reset_TIME"] = 60*60*Universal_1_sec_Interval;
+  metadata["publish_interval"] = Universal_1_sec_Interval;
+  metadata["btn_hold_time"] = Btn_conf_Mode_Interval;
+  metadata["tono_corto"] = tono_corto;
+  metadata["tono_medio"] = tono_medio;
+  metadata["tono_largo"] = tono_largo;
+  metadata["flash_corto"] = flash_corto;
+  metadata["flash_medio"] = flash_medio;
+  metadata["flash_largo"] = flash_largo;
+  metadata["fail_threshold"] = fail_threshold;
+  metadata["rssi_threshold"] = rssi_low_threshold;
   metadata["timeZone"] = timeZone;
   JsonObject supports = d["supports"].to<JsonObject>();
   supports["deviceActions"] = true;
@@ -701,7 +862,7 @@ void NormalReset() {
 }
 //--------------------------------------------------------------------------Funcion de checkear alarmas.!!!------------------------------------------------------------------------------
 void checkalarms () {
-  if (WiFi.RSSI() < RSSI_LOW_THRESHOLD) {
+  if (WiFi.RSSI() < rssi_low_threshold) {
     if (BeepSignalWarning < 4) {
       alarm.Beep(tono_largo);
       BeepSignalWarning++;
@@ -717,7 +878,7 @@ void updateDeviceInfo() {
   strlcpy(msg, "on", sizeof(msg));
   VBat = analogRead(A0) * (4.2 / 1024.0); // TODO: calibrate voltage divider ratio for actual hardware
   WifiSignal = WiFi.RSSI();
-  if (WiFi.RSSI() < RSSI_LOW_THRESHOLD) {
+  if (WiFi.RSSI() < rssi_low_threshold) {
     strlcpy(msg, "LOWiFi", sizeof(msg));
     Rojo.Flash(flash_medio);
     alarm.Beep(tono_medio);
@@ -806,7 +967,7 @@ void loop() {
       }
 
       // VERIFICAMOS CUANTAS VECES NO SE HAN ENVIOADO PAQUETES (ERRORES)
-      if (failed >= FAILTRESHOLD) {
+      if (failed >= fail_threshold) {
         failed = 0;
         published = 0;
         sent = 0;
