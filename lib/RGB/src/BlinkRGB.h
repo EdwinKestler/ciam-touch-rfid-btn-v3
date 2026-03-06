@@ -12,13 +12,16 @@ class BlinkRGB {
     public:
         BlinkRGB(int pin);
         void Flash(unsigned long flash_interval);
+        void FlashNonBlocking(unsigned long flash_interval);
+        void update();
         void This_RGB_State(int RGB_STATE);
         void SetPWM(int value);
-        // void Change_RGB_State();  // unused
     private:
         int _pin;
         int _RGB_State;
         unsigned long _flash_interval;
+        unsigned long _flash_start;
+        bool _flashing;
 };
 
 class BlinkColor {
@@ -27,12 +30,16 @@ class BlinkColor {
         void COn();
         void COff();
         void CFlash(unsigned long Cflash_interval);
+        void CFlashNonBlocking(unsigned long Cflash_interval);
+        void update();
         void SetRGB(int r, int g, int b);
     private:
         int _pin0;
         int _pin1;
         int _pin2;
         unsigned long _Cflash_interval;
+        unsigned long _flash_start;
+        bool _flashing;
 };
 
 #endif

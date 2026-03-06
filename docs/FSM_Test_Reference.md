@@ -622,6 +622,22 @@ Open serial monitor at **115200 baud** before starting each test.
 
 ---
 
+## Flow 29: Non-Blocking Feedback Verification
+
+**Precondition:** Device flashed with v6.00 firmware (Phase 4 non-blocking feedback).
+
+| Step | Action | Expected Serial Output | LED | Buzzer | Next State |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Present RFID card | `RFID CARD ID IS: <id>` | Green flash (short) + beep fire simultaneously | Short beep | TRANSMIT_SENSOR_DATA -> IDLE |
+| 2 | Observe FSM responsiveness during flash | Present second card (different) while green LED still on from step 1 | Card processed immediately (no blocking delay) | -- | TRANSMIT_SENSOR_DATA -> IDLE |
+| 3 | Trigger low WiFi alarm (RSSI < -75) | `checkalarms()` fires | White flash + long beep, FSM continues polling sensors | Long beep | Stays IDLE |
+| 4 | Present card during alarm flash/beep | Card read processed normally even while alarm feedback is active | Green flash (overrides) | Short beep (overrides) | TRANSMIT_SENSOR_DATA |
+| 5 | Verify startup feedback still sequential | Power cycle, observe boot sequence | OTA/WiFi window LEDs and beeps remain blocking (sequential) | Sequential beeps | -- |
+
+**PASS criteria:** All FSM feedback is non-blocking during loop. LED + buzzer fire simultaneously (not sequentially). No `delay()` in the FSM path. Sensor polling is never stalled by feedback. Startup feedback remains sequential (intentional). Watchdog is never starved.
+
+---
+
 ## Flow 19: Unknown FSM State (safety net)
 
 **Precondition:** `fsm_state` set to an undefined value (e.g., via memory corruption or bug). Cannot be triggered manually in normal operation.
@@ -674,6 +690,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | 26 | v6.00 Smoke Test | Normal operation | All behavior identical to v5.00 after modular refactor | [ ] |
 | 27 | Sensor Abstraction | Card + button via sensor array | Unified TRANSMIT_SENSOR_DATA state, generic publishSensorEvent | [ ] |
 | 28 | HeartbeatData Struct | 30-min heartbeat or 24h reset | JSON payload identical to pre-Phase-3, all 20 fields present | [ ] |
+| 29 | Non-Blocking Feedback | Card read during active LED/buzzer | FSM processes events without delay, LED+buzzer fire simultaneously | [ ] |
 
 ---
 

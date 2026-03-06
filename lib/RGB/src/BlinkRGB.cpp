@@ -9,6 +9,8 @@
 BlinkRGB::BlinkRGB(int pin) {
     pinMode(pin, OUTPUT);
     _pin = pin;
+    _flashing = false;
+    _flash_start = 0;
 }
 
 void BlinkRGB::This_RGB_State(int RGB_State){
@@ -40,6 +42,20 @@ void BlinkRGB::Flash(unsigned long flash_interval) {
     digitalWrite(_pin, LOW);
 }
 
+void BlinkRGB::FlashNonBlocking(unsigned long flash_interval) {
+    _flash_interval = flash_interval;
+    _flash_start = millis();
+    _flashing = true;
+    digitalWrite(_pin, HIGH);
+}
+
+void BlinkRGB::update() {
+    if (_flashing && (millis() - _flash_start >= _flash_interval)) {
+        digitalWrite(_pin, LOW);
+        _flashing = false;
+    }
+}
+
 BlinkColor::BlinkColor(int pin0, int pin1,int pin2) {
     pinMode(pin0, OUTPUT);
     pinMode(pin1, OUTPUT);
@@ -47,6 +63,8 @@ BlinkColor::BlinkColor(int pin0, int pin1,int pin2) {
     _pin0 = pin0;
     _pin1 = pin1;
     _pin2 = pin2;
+    _flashing = false;
+    _flash_start = 0;
 }
 
 void BlinkColor::COn() {
@@ -79,4 +97,22 @@ void BlinkColor::CFlash(unsigned long Cflash_interval) {
     digitalWrite(_pin0, LOW);
     digitalWrite(_pin1, LOW);
     digitalWrite(_pin2, LOW);
+}
+
+void BlinkColor::CFlashNonBlocking(unsigned long Cflash_interval) {
+    _Cflash_interval = Cflash_interval;
+    _flash_start = millis();
+    _flashing = true;
+    digitalWrite(_pin0, HIGH);
+    digitalWrite(_pin1, HIGH);
+    digitalWrite(_pin2, HIGH);
+}
+
+void BlinkColor::update() {
+    if (_flashing && (millis() - _flash_start >= _Cflash_interval)) {
+        digitalWrite(_pin0, LOW);
+        digitalWrite(_pin1, LOW);
+        digitalWrite(_pin2, LOW);
+        _flashing = false;
+    }
 }

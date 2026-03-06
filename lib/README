@@ -341,7 +341,7 @@ The device uses a multi-layer WiFi recovery strategy:
 - MQTT connection is plaintext (no TLS) -- acceptable for LAN deployment, not for internet-facing brokers
 - OTA credentials are stored in source code (Settings.h); MQTT credentials are in LittleFS config.json (XOR obfuscated, not encrypted)
 - XOR obfuscation is NOT encryption -- it deters casual flash dump reading but not a determined attacker. TLS planned for ESP32 version.
-- Short beeps (tono_corto/medio/largo) remain blocking. Only remote buzzer (`{"beep": N}`) is non-blocking.
+- Setup-time feedback (OTA, WiFi portal, initial MQTT connect) still uses blocking Flash/CFlash/Beep for deliberate sequential audio/visual cues before the FSM loop starts.
 - RFID frame validation is length-based only (no checksum verification -- reader-model-dependent)
 
 ## Changelog
@@ -349,6 +349,15 @@ The device uses a multi-layer WiFi recovery strategy:
 ### v6.00 - Modular Architecture Refactor + Sensor Abstraction
 
 Codebase restructured for modularity, scalability, and extensibility. Goal: make the firmware a standard platform where sensor modules are plug-and-play.
+
+Phase 4 -- Non-Blocking Feedback:
+
+- Added `FlashNonBlocking(interval)` + `update()` to `BlinkRGB` class -- millis()-based state machine, same pattern as `BTN_Bzzr::BeepNonBlocking()`.
+- Added `CFlashNonBlocking(interval)` + `update()` to `BlinkColor` class -- all 3 pins turn on immediately, `update()` turns them off after the interval.
+- All `feedback_*()` functions in `feedback.cpp` now use non-blocking calls exclusively (`FlashNonBlocking`, `CFlashNonBlocking`, `BeepNonBlocking`). LED and buzzer fire simultaneously instead of sequentially.
+- `feedback_update()` now ticks all 5 LED objects (Azul, Verde, Rojo, Blanco, Purpura) plus the buzzer -- called every `loop()` iteration.
+- Original blocking `Flash()`, `CFlash()`, `Beep()` methods retained for setup-time use (OTA, WiFi portal, initial MQTT connect) where sequential feedback is intentional.
+- Eliminates `delay()` from the FSM loop path entirely -- prevents watchdog starvation and unblocks sensor polling during feedback.
 
 Phase 3 -- HeartbeatData Struct:
 

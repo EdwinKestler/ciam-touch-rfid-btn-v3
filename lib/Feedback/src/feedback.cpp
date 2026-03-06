@@ -20,54 +20,59 @@ BlinkColor Purpura(PIN_LED_BLUE, PIN_LED_PURPLE, PIN_LED_RED);
 BTN_Bzzr alarm_buzzer(PIN_BUZZER);
 
 void feedback_ok() {
-    Verde.Flash(flash_corto);
-    alarm_buzzer.Beep(tono_corto);
+    Verde.FlashNonBlocking(flash_corto);
+    alarm_buzzer.BeepNonBlocking(tono_corto);
 }
 
 void feedback_error() {
-    Rojo.Flash(flash_corto);
-    alarm_buzzer.Beep(tono_medio);
+    Rojo.FlashNonBlocking(flash_corto);
+    alarm_buzzer.BeepNonBlocking(tono_medio);
 }
 
 void feedback_warning() {
-    Rojo.Flash(flash_medio);
-    alarm_buzzer.Beep(tono_medio);
+    Rojo.FlashNonBlocking(flash_medio);
+    alarm_buzzer.BeepNonBlocking(tono_medio);
 }
 
 void feedback_alarm() {
-    Blanco.CFlash(flash_largo);
-    alarm_buzzer.Beep(tono_largo);
+    Blanco.CFlashNonBlocking(flash_largo);
+    alarm_buzzer.BeepNonBlocking(tono_largo);
 }
 
 void feedback_publish_ok() {
-    Verde.Flash(flash_corto);
-    alarm_buzzer.Beep(tono_corto);
+    Verde.FlashNonBlocking(flash_corto);
+    alarm_buzzer.BeepNonBlocking(tono_corto);
 }
 
 void feedback_publish_fail() {
-    Rojo.Flash(flash_corto);
+    Rojo.FlashNonBlocking(flash_corto);
 }
 
 void feedback_mqtt_retry() {
-    Blanco.CFlash(flash_corto);
-    alarm_buzzer.Beep(tono_corto);
+    Blanco.CFlashNonBlocking(flash_corto);
+    alarm_buzzer.BeepNonBlocking(tono_corto);
 }
 
 void feedback_mqtt_fail() {
-    Purpura.CFlash(flash_medio);
-    alarm_buzzer.Beep(tono_medio);
+    Purpura.CFlashNonBlocking(flash_medio);
+    alarm_buzzer.BeepNonBlocking(tono_medio);
 }
 
 void feedback_card_read() {
-    Verde.Flash(flash_corto);
-    alarm_buzzer.Beep(tono_corto);
+    Verde.FlashNonBlocking(flash_corto);
+    alarm_buzzer.BeepNonBlocking(tono_corto);
 }
 
 void feedback_button_press() {
-    Azul.Flash(flash_corto);
-    alarm_buzzer.Beep(tono_corto);
+    Azul.FlashNonBlocking(flash_corto);
+    alarm_buzzer.BeepNonBlocking(tono_corto);
 }
 
 void feedback_update() {
+    Azul.update();
+    Verde.update();
+    Rojo.update();
+    Blanco.update();
+    Purpura.update();
     alarm_buzzer.update();
 }
