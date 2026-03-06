@@ -36,10 +36,12 @@ class flatbox {
         char * Administracion_Dispositivo(const HeartbeatData& data);
         char * Evento_Boton(String Time_Stamp, String ID_Evento_Boton, unsigned long seq);
         char * Evento_Tarjeta(String ID_Evento_Tarjeta, String Time_Stamp, String ID_Tarjeta_RFID, unsigned long seq);
+        char * Evento_Power(String Time_Stamp, float voltage, int adcRaw, unsigned long seq);
     private:
         String _UID_Board;
         char _Boton_Data[300];
         char _Tarjeta_Data[300];
+        char _Power_Data[300];
         char _Manejo_Data[600];
 };
 

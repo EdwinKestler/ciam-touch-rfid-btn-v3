@@ -64,6 +64,25 @@ char * flatbox::Administracion_Dispositivo(const HeartbeatData& data)
     return _Boton_Data;
 }
 
+char * flatbox::Evento_Power(String Time_Stamp, float voltage, int adcRaw, unsigned long seq)
+{
+    JsonDocument doc;
+    JsonObject d = doc["d"].to<JsonObject>();
+    JsonObject powerdata = d["powerdata"].to<JsonObject>();
+    powerdata["ChipID"] = _UID_Board;
+    powerdata["voltage"] = serialized(String(voltage, 2));
+    powerdata["adc_raw"] = adcRaw;
+    powerdata["Tstamp"] = Time_Stamp;
+    powerdata["seq"] = seq;
+    size_t n = serializeJson(doc, _Power_Data, sizeof(_Power_Data));
+    if (n >= sizeof(_Power_Data)) {
+      Serial.println(F("WARNING: Power JSON truncated!"));
+    }
+    Serial.println(F("publishing power data to publishTopic:"));
+    Serial.println(_Power_Data);
+    return _Power_Data;
+}
+
 char * flatbox::Evento_Tarjeta(String ID_Evento_Tarjeta, String Time_Stamp, String ID_Tarjeta_RFID, unsigned long seq)
 {
     JsonDocument doc;

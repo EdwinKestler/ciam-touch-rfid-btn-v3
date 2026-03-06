@@ -25,4 +25,7 @@
 // Purple LED mix uses D4 (also ESP8266 built-in LED)
 #define PIN_LED_PURPLE  D4
 
+// Battery voltage (ADC)
+#define PIN_BATTERY     A0
+
 #endif // PINS_H

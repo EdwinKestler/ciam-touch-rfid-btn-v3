@@ -21,6 +21,7 @@
 #include <sensor_base.h>
 #include <rfid_sensor.h>
 #include <button_sensor.h>
+#include <power_sensor.h>
 
 // --- FSM states ---
 enum FsmState {
@@ -49,8 +50,9 @@ flatbox Flatbox_Json(NodeID);
 // --- Sensors ---
 RFIDSensor rfidSensor(PIN_RFID_TX, PIN_RFID_RX, NodeID, Flatbox_Json);
 ButtonSensor buttonSensor(PIN_TOUCH, NodeID, Flatbox_Json);
+PowerSensor powerSensor(PIN_BATTERY, NodeID, Flatbox_Json, 30UL * 60 * 1000);
 
-SensorBase* sensors[] = { &rfidSensor, &buttonSensor };
+SensorBase* sensors[] = { &rfidSensor, &buttonSensor, &powerSensor };
 const int SENSOR_COUNT = sizeof(sensors) / sizeof(sensors[0]);
 SensorBase* activeSensor = nullptr;
 
@@ -60,7 +62,6 @@ unsigned long Last_Update_Millis;
 unsigned long Last_NTP_Update_Millis;
 char msg[20] = "";
 int BeepSignalWarning = 0;
-float VBat = 0;
 int hora = 0;
 int WifiSignal;
 String bootReason;
@@ -71,7 +72,7 @@ void publishRF_ID_Manejo() {
   msg_seq++;
   HeartbeatData hb = {
     .status      = msg,
-    .battery     = VBat,
+    .battery     = powerSensor.voltage(),
     .rssi        = WifiSignal,
     .published   = published,
     .sent        = sent,
