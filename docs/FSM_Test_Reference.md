@@ -607,6 +607,21 @@ Open serial monitor at **115200 baud** before starting each test.
 
 ---
 
+## Flow 28: HeartbeatData Struct Verification
+
+**Precondition:** Device flashed with v6.00 firmware (Phase 3 HeartbeatData struct).
+
+| Step | Action | Expected Serial Output | LED | Buzzer | Next State |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Wait for 30-min heartbeat (or trigger via low RSSI) | `STATE_UPDATE`, then `publishing device data to manageTopic:` followed by JSON | -- | -- | UPDATE -> TRANSMIT_DEVICE_UPDATE -> IDLE |
+| 2 | Verify JSON payload contains all fields | `ChipID`, `DeviceID`, `Msg`, `FW`, `HW`, `uptime`, `free_heap`, `hora`, `batt`, `RSSI`, `SSID`, `Location`, `seq`, `boot_reason`, `publicados`, `enviados`, `fallidos`, `Tstamp`, `Mac`, `Ip` | -- | -- | -- |
+| 3 | Verify 24h reset heartbeat | Trigger `hora > 24`: JSON payload has `Msg:"24h Normal Reset"` with all fields populated | -- | -- | restart |
+| 4 | Compare JSON output to v5.00 | Field names and values identical -- struct is internal refactor only | -- | -- | -- |
+
+**PASS criteria:** Heartbeat JSON payload is byte-identical to pre-Phase-3 output. All 20 fields present. No missing or reordered keys. `HeartbeatData` struct is an internal refactor -- zero observable behavior change.
+
+---
+
 ## Flow 19: Unknown FSM State (safety net)
 
 **Precondition:** `fsm_state` set to an undefined value (e.g., via memory corruption or bug). Cannot be triggered manually in normal operation.
@@ -658,6 +673,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | 25 | Config Migration | Old config.json | Auto-migrates to v3 (hex XOR), v2 resets password | [ ] |
 | 26 | v6.00 Smoke Test | Normal operation | All behavior identical to v5.00 after modular refactor | [ ] |
 | 27 | Sensor Abstraction | Card + button via sensor array | Unified TRANSMIT_SENSOR_DATA state, generic publishSensorEvent | [ ] |
+| 28 | HeartbeatData Struct | 30-min heartbeat or 24h reset | JSON payload identical to pre-Phase-3, all 20 fields present | [ ] |
 
 ---
 

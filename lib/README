@@ -62,7 +62,7 @@ IoT device firmware for an ESP8266-based (WeMos D1 mini) RFID and capacitive tou
 │   ├── Buzzer/src/             # BTN_Bzzr - piezo buzzer control
 │   ├── Config/src/             # BtnConf struct, LittleFS read/save, XOR obfuscation
 │   ├── Feedback/src/           # LED + buzzer abstraction layer
-│   ├── Flatbox_publish/src/    # flatbox - MQTT JSON payload formatting
+│   ├── Flatbox_publish/src/    # flatbox - MQTT JSON payload formatting + HeartbeatData struct
 │   ├── MqttManager/src/        # MQTT connect/reconnect, callback dispatch, subscriptions
 │   ├── NTP_Client/src/         # NTPClient - UDP time synchronization
 │   ├── OTA/src/                # OTA update mode
@@ -349,6 +349,12 @@ The device uses a multi-layer WiFi recovery strategy:
 ### v6.00 - Modular Architecture Refactor + Sensor Abstraction
 
 Codebase restructured for modularity, scalability, and extensibility. Goal: make the firmware a standard platform where sensor modules are plug-and-play.
+
+Phase 3 -- HeartbeatData Struct:
+
+- Created `HeartbeatData` struct in `Flatbox_Publish.h` -- replaces the 19-positional-parameter `Administracion_Dispositivo()` signature with a single `const HeartbeatData&` reference. Fields are named (`status`, `battery`, `rssi`, `published`, `sent`, `failed`, `timestamp`, `mac`, `ip`, `deviceId`, `fwVersion`, `hwVersion`, `hora`, `uptimeSec`, `freeHeap`, `ssid`, `location`, `seq`, `bootReason`).
+- Call site in `main.cpp::publishRF_ID_Manejo()` uses C++ designated initializers (`HeartbeatData hb = { .status = msg, .battery = VBat, ... }`) for self-documenting field assignment.
+- Adding a new heartbeat field requires only: (1) add field to `HeartbeatData` struct, (2) populate it at the call site, (3) add the JSON key in `Administracion_Dispositivo()`. No function signature changes propagate.
 
 Phase 2 -- Sensor Abstraction:
 
