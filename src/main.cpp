@@ -95,9 +95,9 @@ unsigned long lastCardPublishMillis = 0;                                        
 String lastPublishedCardID = "";                                                                     //Ultima tarjeta publicada
 #define RFID_RATE_LIMIT_MS 60000UL                                                                   //Minimo 60s entre publicaciones de la misma tarjeta
 //--------------------------------------------------------------------------------------------------//Config version
-#define CONFIG_VERSION 2                                                                             //Version del esquema de config.json
+#define CONFIG_VERSION 3                                                                             //Version del esquema de config.json (v3 = hex-encoded XOR password)
 //--------------------------------------------------------------------------------------------------//LWT (Last Will and Testament) payload
-static const char LWT_PAYLOAD[] PROGMEM = "{\"d\":{\"Ddata\":{\"Msg\":\"offline\"}}}";
+static const char LWT_PAYLOAD[] = "{\"d\":{\"Ddata\":{\"Msg\":\"offline\"}}}";
 //--------------------------------------------------------------------------------------------------//Boot reason
 String bootReason;
 //--------------------------------------------------------------------------------------------------//variables Globales de lectura de codigos RFID
@@ -150,12 +150,31 @@ int fsm_state;
 
 //***************************************************************************************FIN DE DEFINICION DE VARIABLES GLOBALES
 //--------------------------------------------------------------------------------------------------//Obfuscacion XOR simple para credenciales en LittleFS (no es cifrado, solo dificulta lectura casual del flash)
+// XOR + hex-encode so the result is JSON-safe ASCII (no raw binary in JSON strings)
 #define XOR_KEY 0xA5
-void xorObfuscate(const char* input, char* output, size_t len) {
-  for (size_t i = 0; i < len && input[i] != '\0'; i++) {
-    output[i] = input[i] ^ XOR_KEY;
+static const char HEX_CHARS[] = "0123456789abcdef";
+
+// Encode: plaintext → XOR each byte → hex string (output must be at least 2*strlen(input)+1)
+void xorObfuscateHex(const char* input, char* output, size_t outLen) {
+  size_t j = 0;
+  for (size_t i = 0; input[i] != '\0' && j + 2 < outLen; i++) {
+    uint8_t b = (uint8_t)input[i] ^ XOR_KEY;
+    output[j++] = HEX_CHARS[b >> 4];
+    output[j++] = HEX_CHARS[b & 0x0F];
   }
-  output[strlen(input)] = '\0';
+  output[j] = '\0';
+}
+
+// Decode: hex string → unhex each pair → XOR back → plaintext
+void xorDeobfuscateHex(const char* hexInput, char* output, size_t outLen) {
+  size_t len = strlen(hexInput);
+  size_t j = 0;
+  for (size_t i = 0; i + 1 < len && j + 1 < outLen; i += 2) {
+    uint8_t hi = (hexInput[i] >= 'a') ? (hexInput[i] - 'a' + 10) : (hexInput[i] - '0');
+    uint8_t lo = (hexInput[i+1] >= 'a') ? (hexInput[i+1] - 'a' + 10) : (hexInput[i+1] - '0');
+    output[j++] = (char)((hi << 4 | lo) ^ XOR_KEY);
+  }
+  output[j] = '\0';
 }
 //--------------------------------------------------------------------------------------------------//Forward declarations
 void initManagedDevice();
@@ -224,17 +243,22 @@ void Read_Configuration_JSON(){
         strlcpy(btnconfig.Location, doc["Location"] | "", sizeof(btnconfig.Location));                //Parametro de ubicacion fisica del dispositivo
         strlcpy(btnconfig.Wifi_Fallback_SSID, doc["Wifi_Fallback_SSID"] | "", sizeof(btnconfig.Wifi_Fallback_SSID));
         strlcpy(btnconfig.Wifi_Fallback_Pass, doc["Wifi_Fallback_Pass"] | "", sizeof(btnconfig.Wifi_Fallback_Pass));
-        // Config version migration: if missing or old, save with current version
+        // Config version migration
         int stored_version = doc["config_version"] | 0;
-        if (stored_version >= 2) {
-          // Password is obfuscated in v2+, deobfuscate it
-          char obf_pass[24];
-          strlcpy(obf_pass, doc["MQTT_Password"] | "esp8266", sizeof(obf_pass));
-          xorObfuscate(obf_pass, btnconfig.MQTT_Password, sizeof(btnconfig.MQTT_Password));
+        if (stored_version >= 3) {
+          // v3+: password is hex-encoded XOR, decode it
+          char hex_pass[48];
+          strlcpy(hex_pass, doc["MQTT_Password"] | "", sizeof(hex_pass));
+          xorDeobfuscateHex(hex_pass, btnconfig.MQTT_Password, sizeof(btnconfig.MQTT_Password));
+        } else if (stored_version == 2) {
+          // v2: binary XOR — corrupted by JSON round-trip, use plaintext default
+          Serial.println(F("Config v2 detected: password corrupted by binary XOR, using default"));
+          strlcpy(btnconfig.MQTT_Password, "esp8266", sizeof(btnconfig.MQTT_Password));
         }
+        // v0/v1: password already read as plaintext above, no action needed
         if (stored_version < CONFIG_VERSION) {
           Serial.printf("Config migration: v%d -> v%d\n", stored_version, CONFIG_VERSION);
-          shouldSaveConfig = true;  // trigger re-save with new fields and obfuscated password
+          shouldSaveConfig = true;  // trigger re-save with hex-encoded password
         }
       }
       configFile.close();
@@ -267,7 +291,7 @@ void copyWifiManagerParams(
     doc["MQTT_Server"] = btnconfig.MQTT_Server;
     doc["MQTT_Port"] = btnconfig.MQTT_Port;
     doc["MQTT_User"] = btnconfig.MQTT_User;
-    { char obf[24]; xorObfuscate(btnconfig.MQTT_Password, obf, sizeof(obf)); doc["MQTT_Password"] = obf; }
+    { char obf[48]; xorObfuscateHex(btnconfig.MQTT_Password, obf, sizeof(obf)); doc["MQTT_Password"] = obf; }
     doc["NTPClient_SERVER"] = btnconfig.NTPClient_SERVER;
     doc["NTPClient_interval"] = btnconfig.NTPClient_interval;
     doc["Device_ID"] = btnconfig.Device_ID;
@@ -376,7 +400,7 @@ void saveConfigToLittleFS() {
   doc["MQTT_Server"] = btnconfig.MQTT_Server;
   doc["MQTT_Port"] = btnconfig.MQTT_Port;
   doc["MQTT_User"] = btnconfig.MQTT_User;
-  { char obf[24]; xorObfuscate(btnconfig.MQTT_Password, obf, sizeof(obf)); doc["MQTT_Password"] = obf; }
+  { char obf[48]; xorObfuscateHex(btnconfig.MQTT_Password, obf, sizeof(obf)); doc["MQTT_Password"] = obf; }
   doc["NTPClient_SERVER"] = btnconfig.NTPClient_SERVER;
   doc["NTPClient_interval"] = btnconfig.NTPClient_interval;
   doc["Device_ID"] = btnconfig.Device_ID;
