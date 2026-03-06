@@ -24,6 +24,16 @@ IoT device firmware for an ESP8266-based (WeMos D1 mini) RFID and capacitive tou
 - Fallback WiFi support (secondary SSID/password tried if primary network fails)
 - Remote WiFi credential push via MQTT (stored as fallback, used on next reconnect)
 - Installation location configurable via WiFiManager portal and remotely via MQTT
+- MQTT Last Will and Testament (LWT) for instant offline detection
+- Retained heartbeat messages so dashboard gets state immediately
+- Monotonic message sequence numbers on all MQTT publishes (gap detection)
+- Boot reason reporting in heartbeat (`ESP.getResetReason()`)
+- Hardware watchdog timer (8s timeout, auto-fed in loop)
+- Non-blocking remote buzzer (millis-based, FSM keeps running during long beeps)
+- Exponential backoff on MQTT reconnect (3s to 60s cap)
+- RFID rate limiting (same card max once per 60s to prevent flooding)
+- Config schema versioning with automatic migration
+- XOR obfuscation of MQTT password in LittleFS (deters casual flash extraction)
 
 ## Hardware
 
@@ -318,7 +328,9 @@ The device uses a multi-layer WiFi recovery strategy:
 - NTP synchronization can be slow on startup (mitigated with 5-retry loop, continues without time if all fail)
 - Maximum MQTT payload buffer: 300 bytes (truncation detected and logged)
 - MQTT connection is plaintext (no TLS) -- acceptable for LAN deployment, not for internet-facing brokers
-- OTA credentials are stored in source code (Settings.h); MQTT credentials are in LittleFS config.json
+- OTA credentials are stored in source code (Settings.h); MQTT credentials are in LittleFS config.json (XOR obfuscated, not encrypted)
+- XOR obfuscation is NOT encryption -- it deters casual flash dump reading but not a determined attacker. TLS planned for ESP32 version.
+- Short beeps (tono_corto/medio/largo) remain blocking. Only remote buzzer (`{"beep": N}`) is non-blocking.
 - RFID frame validation is length-based only (no checksum verification -- reader-model-dependent)
 
 ## Changelog
@@ -439,6 +451,21 @@ WiFi resilience and device location:
 - Added remote location update via update topic (`location`) -- persisted to LittleFS immediately
 - Increased `_Manejo_Data` buffer from 450 to 550 bytes to accommodate SSID + Location fields
 - Increased `initManagedDevice()` metadata buffer from 500 to 600 bytes
+
+IoT best practices:
+
+- Added MQTT Last Will and Testament (LWT) -- broker publishes `{"Msg":"offline"}` to manageTopic when device disconnects unexpectedly
+- Added `retain=true` on heartbeat publish -- dashboard immediately gets last known state on connect
+- Added monotonic `msg_seq` counter to all MQTT payloads (heartbeat, button, card) -- server can detect gaps and duplicates
+- Added `boot_reason` field to heartbeat from `ESP.getResetReason()` -- distinguishes power cycle, watchdog, exception, OTA, remote reboot
+- Added hardware watchdog timer (`ESP.wdtEnable(8000)`) with `ESP.wdtFeed()` in loop -- auto-restart on hang
+- Made remote buzzer non-blocking (`BeepNonBlocking()` + `alarm.update()` in loop) -- FSM continues during long beeps
+- Added exponential backoff to `MQTTreconnect()` (3s -> 6s -> 12s -> ... -> 60s cap) -- reduces reconnect storm on broker outage
+- Added RFID rate limiting -- same card ID can only publish once per 60s (prevents card-left-on-reader flooding)
+- Added `config_version` field to `config.json` with automatic migration -- new fields get defaults on firmware upgrade
+- Added XOR obfuscation for MQTT password in LittleFS -- deters casual flash dump reading (not encryption)
+- `MQTTreconnect()` now calls `initManagedDevice()` after successful reconnect to re-subscribe all topics
+- Increased `_Manejo_Data` buffer from 550 to 600 bytes for seq + boot_reason fields
 
 Code quality:
 

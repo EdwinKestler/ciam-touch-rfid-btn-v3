@@ -86,6 +86,20 @@ unsigned long flash_largo = 1000;                                               
 bool shouldSaveConfig = false;
 //--------------------------------------------------------------------------------------------------//MQTT_pubsubclient variables
 int failed, sent, published;                                                                        //Variables de conteo de mensajes enviados, fallidos y publicados
+unsigned long msg_seq = 0;                                                                           //Numero de secuencia monotonica para todos los mensajes MQTT
+//--------------------------------------------------------------------------------------------------//MQTT reconnect backoff
+unsigned long mqtt_backoff_ms = 3000;                                                                //Backoff inicial para reconexion MQTT (3s)
+#define MQTT_BACKOFF_MAX 60000UL                                                                     //Backoff maximo (60s)
+//--------------------------------------------------------------------------------------------------//RFID rate limiting
+unsigned long lastCardPublishMillis = 0;                                                             //Ultima vez que se publico una tarjeta
+String lastPublishedCardID = "";                                                                     //Ultima tarjeta publicada
+#define RFID_RATE_LIMIT_MS 60000UL                                                                   //Minimo 60s entre publicaciones de la misma tarjeta
+//--------------------------------------------------------------------------------------------------//Config version
+#define CONFIG_VERSION 2                                                                             //Version del esquema de config.json
+//--------------------------------------------------------------------------------------------------//LWT (Last Will and Testament) payload
+static const char LWT_PAYLOAD[] PROGMEM = "{\"d\":{\"Ddata\":{\"Msg\":\"offline\"}}}";
+//--------------------------------------------------------------------------------------------------//Boot reason
+String bootReason;
 //--------------------------------------------------------------------------------------------------//variables Globales de lectura de codigos RFID
 #define DataLenght 10
 #define RFID_FRAME_SIZE 13
@@ -135,6 +149,17 @@ int fsm_state;
 #define STATE_RDY_TO_UPDATE_OTA       7
 
 //***************************************************************************************FIN DE DEFINICION DE VARIABLES GLOBALES
+//--------------------------------------------------------------------------------------------------//Obfuscacion XOR simple para credenciales en LittleFS (no es cifrado, solo dificulta lectura casual del flash)
+#define XOR_KEY 0xA5
+void xorObfuscate(const char* input, char* output, size_t len) {
+  for (size_t i = 0; i < len && input[i] != '\0'; i++) {
+    output[i] = input[i] ^ XOR_KEY;
+  }
+  output[strlen(input)] = '\0';
+}
+//--------------------------------------------------------------------------------------------------//Forward declarations
+void initManagedDevice();
+void saveConfigToLittleFS();
 //--------------------------------------------------------------------------------------------------callback notifying us of the need to save config
 void saveConfigCallback () {
   Serial.println("Deberia Guardar la configuracion");
@@ -199,6 +224,18 @@ void Read_Configuration_JSON(){
         strlcpy(btnconfig.Location, doc["Location"] | "", sizeof(btnconfig.Location));                //Parametro de ubicacion fisica del dispositivo
         strlcpy(btnconfig.Wifi_Fallback_SSID, doc["Wifi_Fallback_SSID"] | "", sizeof(btnconfig.Wifi_Fallback_SSID));
         strlcpy(btnconfig.Wifi_Fallback_Pass, doc["Wifi_Fallback_Pass"] | "", sizeof(btnconfig.Wifi_Fallback_Pass));
+        // Config version migration: if missing or old, save with current version
+        int stored_version = doc["config_version"] | 0;
+        if (stored_version >= 2) {
+          // Password is obfuscated in v2+, deobfuscate it
+          char obf_pass[24];
+          strlcpy(obf_pass, doc["MQTT_Password"] | "esp8266", sizeof(obf_pass));
+          xorObfuscate(obf_pass, btnconfig.MQTT_Password, sizeof(btnconfig.MQTT_Password));
+        }
+        if (stored_version < CONFIG_VERSION) {
+          Serial.printf("Config migration: v%d -> v%d\n", stored_version, CONFIG_VERSION);
+          shouldSaveConfig = true;  // trigger re-save with new fields and obfuscated password
+        }
       }
       configFile.close();
     }
@@ -230,13 +267,14 @@ void copyWifiManagerParams(
     doc["MQTT_Server"] = btnconfig.MQTT_Server;
     doc["MQTT_Port"] = btnconfig.MQTT_Port;
     doc["MQTT_User"] = btnconfig.MQTT_User;
-    doc["MQTT_Password"] = btnconfig.MQTT_Password;
+    { char obf[24]; xorObfuscate(btnconfig.MQTT_Password, obf, sizeof(obf)); doc["MQTT_Password"] = obf; }
     doc["NTPClient_SERVER"] = btnconfig.NTPClient_SERVER;
     doc["NTPClient_interval"] = btnconfig.NTPClient_interval;
     doc["Device_ID"] = btnconfig.Device_ID;
     doc["Location"] = btnconfig.Location;
     doc["Wifi_Fallback_SSID"] = btnconfig.Wifi_Fallback_SSID;
     doc["Wifi_Fallback_Pass"] = btnconfig.Wifi_Fallback_Pass;
+    doc["config_version"] = CONFIG_VERSION;
 
     File configFile = LittleFS.open("/config.json", "w");
     if(!configFile){
@@ -244,7 +282,6 @@ void copyWifiManagerParams(
       return;
     }
 
-    serializeJson(doc, Serial);
     serializeJson(doc, configFile);
     configFile.close();
   }
@@ -339,13 +376,14 @@ void saveConfigToLittleFS() {
   doc["MQTT_Server"] = btnconfig.MQTT_Server;
   doc["MQTT_Port"] = btnconfig.MQTT_Port;
   doc["MQTT_User"] = btnconfig.MQTT_User;
-  doc["MQTT_Password"] = btnconfig.MQTT_Password;
+  { char obf[24]; xorObfuscate(btnconfig.MQTT_Password, obf, sizeof(obf)); doc["MQTT_Password"] = obf; }
   doc["NTPClient_SERVER"] = btnconfig.NTPClient_SERVER;
   doc["NTPClient_interval"] = btnconfig.NTPClient_interval;
   doc["Device_ID"] = btnconfig.Device_ID;
   doc["Location"] = btnconfig.Location;
   doc["Wifi_Fallback_SSID"] = btnconfig.Wifi_Fallback_SSID;
   doc["Wifi_Fallback_Pass"] = btnconfig.Wifi_Fallback_Pass;
+  doc["config_version"] = CONFIG_VERSION;
 
   File configFile = LittleFS.open("/config.json", "w");
   if (!configFile) {
@@ -543,7 +581,7 @@ void handleRGBCommand(byte* payload) {
     int seconds = doc["beep"].is<int>() ? (int)doc["beep"] : atoi(doc["beep"].as<const char*>());
     seconds = constrain(seconds, 1, 300);
     Serial.printf("Buzzer: %d seconds\n", seconds);
-    alarm.Beep((unsigned long)seconds * 1000UL);
+    alarm.BeepNonBlocking((unsigned long)seconds * 1000UL);
     return;
   }
 
@@ -630,8 +668,9 @@ void mqttConnect() {
     for (int retry = 0; retry < 4; retry++) {
       Serial.print(F("MQTT attempt #"));
       Serial.println(retry + 1);
-      if (client.connect(charBuf, btnconfig.MQTT_User, btnconfig.MQTT_Password)) {
+      if (client.connect(charBuf, btnconfig.MQTT_User, btnconfig.MQTT_Password, manageTopic, 0, true, LWT_PAYLOAD)) {
         Serial.println(F("MQTT connected"));
+        mqtt_backoff_ms = 3000;  // reset backoff on success
         return;
       }
       Serial.print(F("failed, rc="));
@@ -654,7 +693,7 @@ void mqttConnect() {
 }
 //----------------------------------------------------------------------Funcion de REConexion a Servicio de MQTT
 void MQTTreconnect() {
-  // Attempt up to 3 reconnections per call to avoid long blocking
+  // Attempt up to 3 reconnections per call with exponential backoff
   for (int retry = 0; retry < 3 && !client.connected(); retry++) {
     Serial.print(F("Attempting MQTT connection..."));
     Blanco.CFlash(flash_corto);
@@ -662,17 +701,20 @@ void MQTTreconnect() {
     char charBuf[50];
     String CID (clientId + NodeID);
     CID.toCharArray(charBuf, 50);
-    if (client.connect(charBuf, btnconfig.MQTT_User, btnconfig.MQTT_Password)) {
+    if (client.connect(charBuf, btnconfig.MQTT_User, btnconfig.MQTT_Password, manageTopic, 0, true, LWT_PAYLOAD)) {
       Serial.println(F("connected"));
+      mqtt_backoff_ms = 3000;  // reset backoff on success
+      initManagedDevice();     // re-subscribe topics after reconnect
       return;
     }
     Purpura.CFlash(flash_medio);
     alarm.Beep(tono_medio);
     Serial.print(F("failed, rc="));
     Serial.print(client.state());
-    Serial.print(F(" retry #:"));
-    Serial.println(retry);
-    delay(3000);
+    Serial.printf(" backoff: %lums\n", mqtt_backoff_ms);
+    delay(mqtt_backoff_ms);
+    // Exponential backoff: double delay, cap at max
+    mqtt_backoff_ms = min(mqtt_backoff_ms * 2, MQTT_BACKOFF_MAX);
   }
   if (!client.connected()) {
     Serial.println(F("MQTT reconnect failed after 3 attempts"));
@@ -753,15 +795,24 @@ void initManagedDevice() {
 //**********************************************************************************FIN DE FUNCIONES PREVIAS AL SETUP
 //--------------------------------------------------------------------------------------------------//SETUP
 void setup() {
+  ESP.wdtEnable(8000);                                                                              //Watchdog timer: 8 segundos — reinicia si loop() se bloquea
+  bootReason = ESP.getResetReason();                                                                //Capturar razon de reinicio antes de que se pierda
   Blanco.COff();                                                                                    //enviamos este comando para mandar todos los pines de RGB a LOW
   //inciamos los Seriales de hardware
   Serial.begin(115200);                                                                             //inciamos el puerto Serial de hardware a la velosidad indicada (def:15200)
+  Serial.print(F("Boot reason: "));
+  Serial.println(bootReason);
   Serial.println(F("inicio exitosamnte el puerto Serial"));                                         //Mensaje Serial para la verificacion del incio del puerto serial
   Serial.println(F(""));                                                                            //Linea de Mensaje Serial intencionalmente dejada en Blanco para facilidad de lectura de mensajes Seriales
   //inciamos los Seriales de software
   RFIDReader.begin(9600);                                                                           //inciamos el puerto Serial por Software a la velocidad indicada (def: 9600)
   //leemos los parametros de configuracion almacenados en la memoria en el JSON de configuracion
   Read_Configuration_JSON();
+  // If config migration flagged shouldSaveConfig, save now with new schema
+  if (shouldSaveConfig) {
+    saveConfigToLittleFS();
+    shouldSaveConfig = false;
+  }
   //Construir clientId a partir de config cargada de LittleFS
   snprintf(clientId, sizeof(clientId), "d:%s:%s:%s", ORG, DEVICE_TYPE, btnconfig.Device_ID);
   //Inicializar el cliente NTP con la configuracion cargada de LittleFS
@@ -956,7 +1007,9 @@ void readBtn() {
 //-------- Data de Manejo RF_ID_Manejo. Publish the data to MQTT server, the payload should not be bigger than 45 characters name field and data field counts. --------//
 void publishRF_ID_Manejo () {
   sent++;
-  if (client.publish(manageTopic, Flatbox_Json.Administracion_Dispositivo(msg,VBat,WifiSignal,published,sent,failed,ISO8601,Smacaddrs,Sipaddrs,btnconfig.Device_ID,FirmwareVersion,HardwareVersion,hora,millis()/1000,ESP.getFreeHeap(),WiFi.SSID().c_str(),btnconfig.Location))) {
+  msg_seq++;
+  char* payload = Flatbox_Json.Administracion_Dispositivo(msg,VBat,WifiSignal,published,sent,failed,ISO8601,Smacaddrs,Sipaddrs,btnconfig.Device_ID,FirmwareVersion,HardwareVersion,hora,millis()/1000,ESP.getFreeHeap(),WiFi.SSID().c_str(),btnconfig.Location,msg_seq,bootReason.c_str());
+  if (client.publish(manageTopic, payload, true)) {  // retain=true so dashboard gets last known state
     Serial.println(F("enviado data de dispositivo:OK"));
     published ++;
     failed = failed / 2;  // decay instead of reset — masks persistent degradation less
@@ -1017,7 +1070,8 @@ void updateDeviceInfo() {
 //---------------------------------------------------------------------------funcion de enviode Datos Boton RF_Boton.-----------------------
 void publish_Boton_Data(){
   sent++;
-  if (client.publish(publishTopic, Flatbox_Json.Evento_Boton(ISO8601, identificador_ID_Evento_Boton))) {
+  msg_seq++;
+  if (client.publish(publishTopic, Flatbox_Json.Evento_Boton(ISO8601, identificador_ID_Evento_Boton, msg_seq))) {
     Serial.println(F("enviado data de boton: OK"));
     Verde.Flash(flash_corto);
     alarm.Beep(tono_corto);
@@ -1034,12 +1088,22 @@ void publish_Boton_Data(){
 
 boolean publishRF_ID_Lectura() {
   if (OldTagRead != inputString) {
+    // Rate limit: same card ID can only be published once per RFID_RATE_LIMIT_MS
+    if (inputString == lastPublishedCardID && millis() - lastCardPublishMillis < RFID_RATE_LIMIT_MS) {
+      Serial.println(F("RFID: rate limited, same card too soon"));
+      OldTagRead = inputString;
+      inputString = "";
+      return false;
+    }
     OldTagRead = inputString;
+    lastPublishedCardID = inputString;
+    lastCardPublishMillis = millis();
     Numero_ID_Eventos_Tarjeta ++;
     char Identificador_ID_Evento_Tarjeta[32];
     snprintf(Identificador_ID_Evento_Tarjeta, sizeof(Identificador_ID_Evento_Tarjeta), "%s-%d", NodeID.c_str(), Numero_ID_Eventos_Tarjeta);
     sent ++;
-    if (client.publish(publishTopic, Flatbox_Json.Evento_Tarjeta(Identificador_ID_Evento_Tarjeta,ISO8601,inputString))) {
+    msg_seq++;
+    if (client.publish(publishTopic, Flatbox_Json.Evento_Tarjeta(Identificador_ID_Evento_Tarjeta,ISO8601,inputString,msg_seq))) {
       Serial.println(F("enviado data de RFID: OK"));
       Verde.Flash(flash_corto);
       alarm.Beep(tono_corto);
@@ -1174,6 +1238,8 @@ void loop() {
       fsm_state = STATE_IDLE;
     break;
   }
+  alarm.update();     // actualizar buzzer non-blocking
+  ESP.wdtFeed();      // alimentar watchdog para evitar reinicio por bloqueo
   if (fsm_state != STATE_RDY_TO_UPDATE_OTA) {
     yield();
   }

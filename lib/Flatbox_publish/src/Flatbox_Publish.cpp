@@ -12,7 +12,7 @@ flatbox::flatbox(String UID_Board){
     _UID_Board = UID_Board;
 }
 
-char * flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_Board, int Nivel_RSSI, int Mensajes_publicados, int Mensajes_enviados, int Mensajes_Fallidos, String Time_Stamp, String Direccion_Mac, String Direccion_IP, const char* device_id, const char* fw_version, const char* hw_version, int hora, unsigned long uptime_sec, uint32_t free_heap, const char* ssid, const char* location)
+char * flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_Board, int Nivel_RSSI, int Mensajes_publicados, int Mensajes_enviados, int Mensajes_Fallidos, String Time_Stamp, String Direccion_Mac, String Direccion_IP, const char* device_id, const char* fw_version, const char* hw_version, int hora, unsigned long uptime_sec, uint32_t free_heap, const char* ssid, const char* location, unsigned long seq, const char* boot_reason)
 {
     JsonDocument doc;
     JsonObject d = doc["d"].to<JsonObject>();
@@ -29,6 +29,8 @@ char * flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_
     Ddata["RSSI"] = Nivel_RSSI;
     Ddata["SSID"] = ssid;
     Ddata["Location"] = location;
+    Ddata["seq"] = seq;
+    Ddata["boot_reason"] = boot_reason;
     Ddata["publicados"] = Mensajes_publicados;
     Ddata["enviados"] = Mensajes_enviados;
     Ddata["fallidos"] = Mensajes_Fallidos;
@@ -44,7 +46,7 @@ char * flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_
     return _Manejo_Data;
 }
 
- char * flatbox::Evento_Boton(String Time_Stamp, String ID_Evento_Boton)
+ char * flatbox::Evento_Boton(String Time_Stamp, String ID_Evento_Boton, unsigned long seq)
 {
     JsonDocument doc;
     JsonObject d = doc["d"].to<JsonObject>();
@@ -52,6 +54,7 @@ char * flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_
     botondata["ChipID"] = _UID_Board;
     botondata["IDEventoBoton"] = ID_Evento_Boton;
     botondata["Tstamp"] = Time_Stamp;
+    botondata["seq"] = seq;
     size_t n = serializeJson(doc, _Boton_Data, sizeof(_Boton_Data));
     if (n >= sizeof(_Boton_Data)) {
       Serial.println(F("WARNING: Boton JSON truncated!"));
@@ -61,7 +64,7 @@ char * flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_
     return _Boton_Data;
 }
 
-char * flatbox::Evento_Tarjeta(String ID_Evento_Tarjeta, String Time_Stamp, String ID_Tarjeta_RFID)
+char * flatbox::Evento_Tarjeta(String ID_Evento_Tarjeta, String Time_Stamp, String ID_Tarjeta_RFID, unsigned long seq)
 {
     JsonDocument doc;
     JsonObject d = doc["d"].to<JsonObject>();
@@ -70,6 +73,7 @@ char * flatbox::Evento_Tarjeta(String ID_Evento_Tarjeta, String Time_Stamp, Stri
     tagdata["IDeventoTag"] = ID_Evento_Tarjeta;
     tagdata["Tstamp"] = Time_Stamp;
     tagdata["Tag"] = ID_Tarjeta_RFID;
+    tagdata["seq"] = seq;
     size_t n = serializeJson(doc, _Tarjeta_Data, sizeof(_Tarjeta_Data));
     if (n >= sizeof(_Tarjeta_Data)) {
       Serial.println(F("WARNING: Tarjeta JSON truncated!"));

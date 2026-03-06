@@ -482,6 +482,94 @@ Open serial monitor at **115200 baud** before starting each test.
 
 ---
 
+## Flow 20: LWT and Retained Heartbeat
+
+**Precondition:** Device in IDLE, MQTT connected, dashboard/MQTT client subscribed to `iot-2/evt/status/fmt/json` (manageTopic).
+
+| Step | Action | Expected Serial Output | LED | Buzzer | Next State |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Wait for heartbeat | Heartbeat JSON published with `retain=true` | -- | -- | -- |
+| 2 | Disconnect dashboard, reconnect | Dashboard immediately receives last heartbeat (retained) without waiting | -- | -- | -- |
+| 3 | Unplug device (hard power loss) | Broker publishes LWT: `{"d":{"Ddata":{"Msg":"offline"}}}` to manageTopic | -- | -- | Device off |
+
+**PASS criteria:** Retained heartbeat available on dashboard reconnect. LWT published by broker within MQTT keepalive timeout after device power loss.
+
+---
+
+## Flow 21: Boot Reason and Message Sequence
+
+**Precondition:** Device powered off.
+
+| Step | Action | Expected Serial Output | LED | Buzzer | Next State |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Power on | `Boot reason: Power On` (or similar) | -- | -- | -- |
+| 2 | Wait for first heartbeat | JSON contains `"boot_reason": "Power On"` and `"seq": 1` | -- | -- | -- |
+| 3 | Trigger button press | Button JSON contains `"seq": 2` | -- | -- | -- |
+| 4 | Present RFID card | Card JSON contains `"seq": 3` | -- | -- | -- |
+| 5 | Remote reboot via MQTT | After reboot: `Boot reason: Software/System restart` | -- | -- | -- |
+
+**PASS criteria:** `seq` increments monotonically across all message types. `boot_reason` reflects actual reset cause. Server can detect gaps in seq numbers.
+
+---
+
+## Flow 22: RFID Rate Limiting
+
+**Precondition:** Device in IDLE state.
+
+| Step | Action | Expected Serial Output | LED | Buzzer | Next State |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Present card A | Normal publish, `"seq": N` | Green flash | Short beep | IDLE |
+| 2 | Wait 6s (past duplicate cooldown), present card A again | `RFID: rate limited, same card too soon` | -- | -- | IDLE |
+| 3 | Wait 60s total, present card A again | Normal publish, `"seq": N+1` | Green flash | Short beep | IDLE |
+| 4 | Present card B (different) within 60s | Normal publish (rate limit is per-card-ID) | Green flash | Short beep | IDLE |
+
+**PASS criteria:** Same card cannot be published more than once per 60s. Different cards are not affected by rate limit.
+
+---
+
+## Flow 23: Exponential Backoff on MQTT Reconnect
+
+**Precondition:** Device in IDLE, MQTT broker taken offline.
+
+| Step | Action | Expected Serial Output | LED | Buzzer | Next State |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Broker goes down | `Attempting MQTT connection...`, `failed, rc=<code> backoff: 3000ms` | White flash | Short beep | IDLE |
+| 2 | Next reconnect cycle | `failed, rc=<code> backoff: 6000ms` | White flash | Short beep | IDLE |
+| 3 | Next reconnect cycle | `failed, rc=<code> backoff: 12000ms` | -- | -- | IDLE |
+| 4 | Continue until cap | Backoff increases to 60000ms max | -- | -- | IDLE |
+| 5 | Broker comes back | `connected`, backoff resets to 3000ms | -- | -- | IDLE |
+
+**PASS criteria:** Backoff doubles each cycle, caps at 60s. Resets to 3s on successful connect.
+
+---
+
+## Flow 24: Non-Blocking Remote Buzzer
+
+**Precondition:** Device in IDLE state, MQTT connected.
+
+| Step | Action | Expected Serial Output | LED | Buzzer | Next State |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Publish `{"beep": 10}` to ctrl topic | `Buzzer: 10 seconds` | -- | Buzzer ON | IDLE |
+| 2 | Present RFID card while buzzer is active | Card read processed normally | Green flash | -- | TRANSMIT_CARD |
+| 3 | After 10s | Buzzer turns OFF automatically | -- | Buzzer OFF | IDLE |
+
+**PASS criteria:** FSM continues processing card reads and button presses while buzzer is active. Buzzer turns off automatically after specified duration.
+
+---
+
+## Flow 25: Config Migration
+
+**Precondition:** Device has old `config.json` without `config_version` field (from firmware < v5.00 with IoT best practices).
+
+| Step | Action | Expected Serial Output | LED | Buzzer | Next State |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Flash new firmware, power on | `Config migration: v0 -> v2`, `config.json guardado` | -- | -- | -- |
+| 2 | Subsequent reboots | No migration message (version matches) | -- | -- | -- |
+
+**PASS criteria:** Old config files are automatically migrated with new fields and MQTT password gets obfuscated. No data loss.
+
+---
+
 ## Flow 19: Unknown FSM State (safety net)
 
 **Precondition:** `fsm_state` set to an undefined value (e.g., via memory corruption or bug). Cannot be triggered manually in normal operation.
@@ -514,7 +602,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | 12 | Low WiFi Alarm | RSSI < -75 in IDLE | White flash, max 4 beeps, stays IDLE | [ ] |
 | 13 | 24-Hour Reset | hora > 24 | "24h Normal Reset" published, then restart | [ ] |
 | 14 | Fail Threshold Restart | failed >= fail_threshold | Device restarts, counters zeroed | [ ] |
-| 15 | MQTT Reconnect | Broker unreachable | Max 3 retries (~9s), then continues | [ ] |
+| 15 | MQTT Reconnect | Broker unreachable | Max 3 retries with exponential backoff, then continues | [ ] |
 | 16 | Remote Reboot | MQTT reboot message | "Reiniciando...", device reboots | [ ] |
 | 17 | Remote Update (params) | MQTT update JSON | Parameters applied, "Updated" logs | [ ] |
 | 17b | Remote OTA Trigger | `{"ota": true}` on update topic | Enters OTA mode (same as Flow 3) | [ ] |
@@ -525,6 +613,12 @@ Open serial monitor at **115200 baud** before starting each test.
 | 17g | Startup Fallback WiFi | Primary WiFi down, fallback configured | Connects to fallback without user intervention | [ ] |
 | 18 | Response Message | MQTT response message | JSON printed, no state change | [ ] |
 | 19 | Unknown State | Invalid fsm_state value | "FSM: unknown state", recovers to IDLE | [ ] |
+| 20 | LWT + Retained Heartbeat | Power loss / dashboard reconnect | LWT published by broker, retained heartbeat available | [ ] |
+| 21 | Boot Reason + Seq | Power on, trigger events | boot_reason in heartbeat, seq increments monotonically | [ ] |
+| 22 | RFID Rate Limit | Same card within 60s | "rate limited", rejected. After 60s, accepted | [ ] |
+| 23 | Exponential Backoff | Broker offline | Backoff 3s->6s->12s->...->60s cap, resets on connect | [ ] |
+| 24 | Non-Blocking Buzzer | Remote beep + card read | FSM processes events during active buzzer | [ ] |
+| 25 | Config Migration | Old config.json | Auto-migrates with new fields, password obfuscated | [ ] |
 
 ---
 
@@ -546,7 +640,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | Short | tono_corto | Card read, button press, publish success, MQTT reconnect attempt |
 | Medium | tono_medio | MQTT reconnect fail, low WiFi alarm in updateDeviceInfo, OTA mode |
 | Long | tono_largo | Low WiFi alarm in checkalarms (up to 4x) |
-| Remote | via MQTT | Remote buzzer activation via `{"beep": N}` on ctrl topic (1-300 seconds, blocking) |
+| Remote | via MQTT | Remote buzzer activation via `{"beep": N}` on ctrl topic (1-300 seconds, **non-blocking** -- FSM keeps running) |
 
 ## Counter Behavior Reference
 
@@ -556,6 +650,8 @@ Open serial monitor at **115200 baud** before starting each test.
 | `published` | Every successful publish | Reset to 0 on fail_threshold restart | -- |
 | `failed` | Every failed publish (+1) | Halved on success (/2) | >= `fail_threshold` (default 150) triggers restart |
 | `BeepSignalWarning` | Each low-RSSI beep (+1) | Reset to 0 when RSSI >= `rssi_low_threshold` | Max 4 beeps |
+| `msg_seq` | Every MQTT publish (+1) | Never reset (monotonic since boot) | -- (server detects gaps) |
+| `mqtt_backoff_ms` | Doubles on reconnect fail | Reset to 3000 on connect success | Max 60000ms |
 | `hora` | Every 60 minutes (+1) | Reset to 0 on 24h restart | > 24 triggers restart |
 | `Numero_ID_Evento_Boton` | Each button press (+1) | Never reset (session lifetime) | -- |
 | `Numero_ID_Eventos_Tarjeta` | Each new card publish (+1) | Never reset (session lifetime) | -- |

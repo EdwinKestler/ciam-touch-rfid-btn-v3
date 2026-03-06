@@ -12,12 +12,15 @@ class BTN_Bzzr {
     public:
         BTN_Bzzr(int pin);
         void Beep(unsigned long beep_interval);
-        // void This_Bzzr_State(int BZZR_STATE);  // unused
-        // void Change_Bzzr_State();               // unused
+        void BeepNonBlocking(unsigned long beep_interval);
+        void update();
+        bool isBeeping();
     private:
         int _pin;
         int _Bzzr_State;
         unsigned long _beep_interval;
+        unsigned long _beep_start;
+        bool _beeping;
 };
 
 #endif
