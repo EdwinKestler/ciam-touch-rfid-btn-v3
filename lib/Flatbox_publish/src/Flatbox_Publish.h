@@ -8,10 +8,32 @@
 #define Flatbox_Publish_h
 #include "Arduino.h"
 
+struct HeartbeatData {
+    const char* status;
+    float battery;
+    int rssi;
+    int published;
+    int sent;
+    int failed;
+    const char* timestamp;
+    const char* mac;
+    const char* ip;
+    const char* deviceId;
+    const char* fwVersion;
+    const char* hwVersion;
+    int hora;
+    unsigned long uptimeSec;
+    uint32_t freeHeap;
+    const char* ssid;
+    const char* location;
+    unsigned long seq;
+    const char* bootReason;
+};
+
 class flatbox {
     public:
         flatbox(String UID_Board);
-        char * Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_Board, int Nivel_RSSI, int Mensajes_publicados, int Mensajes_enviados, int Mensajes_Fallidos, String Time_Stamp, String Direccion_Mac, String Direccion_IP, const char* device_id, const char* fw_version, const char* hw_version, int hora, unsigned long uptime_sec, uint32_t free_heap, const char* ssid, const char* location, unsigned long seq, const char* boot_reason);
+        char * Administracion_Dispositivo(const HeartbeatData& data);
         char * Evento_Boton(String Time_Stamp, String ID_Evento_Boton, unsigned long seq);
         char * Evento_Tarjeta(String ID_Evento_Tarjeta, String Time_Stamp, String ID_Tarjeta_RFID, unsigned long seq);
     private:

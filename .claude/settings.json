@@ -11,7 +11,8 @@
       "Bash(mv src/ota.h src/ota.cpp lib/OTA/src/)",
       "Bash(mv src/wifi_setup.h src/wifi_setup.cpp lib/WifiSetup/src/)",
       "Bash(mv src/mqtt_manager.h src/mqtt_manager.cpp lib/MqttManager/src/)",
-      "Bash(~/.platformio/penv/Scripts/platformio.exe run)"
+      "Bash(~/.platformio/penv/Scripts/platformio.exe run)",
+      "Bash(~/.platformio/penv/Scripts/platformio run)"
     ]
   }
 }

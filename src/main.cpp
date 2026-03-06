@@ -112,7 +112,28 @@ void CheckTime() {
 void publishRF_ID_Manejo() {
   sent++;
   msg_seq++;
-  char* payload = Flatbox_Json.Administracion_Dispositivo(msg, VBat, WifiSignal, published, sent, failed, ISO8601, Smacaddrs, Sipaddrs, btnconfig.Device_ID, FirmwareVersion, HardwareVersion, hora, millis()/1000, ESP.getFreeHeap(), WiFi.SSID().c_str(), btnconfig.Location, msg_seq, bootReason.c_str());
+  HeartbeatData hb = {
+    .status      = msg,
+    .battery     = VBat,
+    .rssi        = WifiSignal,
+    .published   = published,
+    .sent        = sent,
+    .failed      = failed,
+    .timestamp   = ISO8601,
+    .mac         = Smacaddrs.c_str(),
+    .ip          = Sipaddrs.c_str(),
+    .deviceId    = btnconfig.Device_ID,
+    .fwVersion   = FirmwareVersion,
+    .hwVersion   = HardwareVersion,
+    .hora        = hora,
+    .uptimeSec   = millis() / 1000,
+    .freeHeap    = ESP.getFreeHeap(),
+    .ssid        = WiFi.SSID().c_str(),
+    .location    = btnconfig.Location,
+    .seq         = msg_seq,
+    .bootReason  = bootReason.c_str()
+  };
+  char* payload = Flatbox_Json.Administracion_Dispositivo(hb);
   if (client.publish(manageTopic, payload, true)) {
     Serial.println(F("enviado data de dispositivo:OK"));
     published++;

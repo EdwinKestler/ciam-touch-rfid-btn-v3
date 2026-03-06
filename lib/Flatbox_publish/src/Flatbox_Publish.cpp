@@ -12,31 +12,31 @@ flatbox::flatbox(String UID_Board){
     _UID_Board = UID_Board;
 }
 
-char * flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_Board, int Nivel_RSSI, int Mensajes_publicados, int Mensajes_enviados, int Mensajes_Fallidos, String Time_Stamp, String Direccion_Mac, String Direccion_IP, const char* device_id, const char* fw_version, const char* hw_version, int hora, unsigned long uptime_sec, uint32_t free_heap, const char* ssid, const char* location, unsigned long seq, const char* boot_reason)
+char * flatbox::Administracion_Dispositivo(const HeartbeatData& data)
 {
     JsonDocument doc;
     JsonObject d = doc["d"].to<JsonObject>();
     JsonObject Ddata = d["Ddata"].to<JsonObject>();
     Ddata["ChipID"] = _UID_Board;
-    Ddata["DeviceID"] = device_id;
-    Ddata["Msg"] = Mensaje_Estado;
-    Ddata["FW"] = fw_version;
-    Ddata["HW"] = hw_version;
-    Ddata["uptime"] = uptime_sec;
-    Ddata["free_heap"] = free_heap;
-    Ddata["hora"] = hora;
-    Ddata["batt"] = Voltaje_Board;
-    Ddata["RSSI"] = Nivel_RSSI;
-    Ddata["SSID"] = ssid;
-    Ddata["Location"] = location;
-    Ddata["seq"] = seq;
-    Ddata["boot_reason"] = boot_reason;
-    Ddata["publicados"] = Mensajes_publicados;
-    Ddata["enviados"] = Mensajes_enviados;
-    Ddata["fallidos"] = Mensajes_Fallidos;
-    Ddata["Tstamp"] = Time_Stamp;
-    Ddata["Mac"] = Direccion_Mac;
-    Ddata["Ip"] = Direccion_IP;
+    Ddata["DeviceID"] = data.deviceId;
+    Ddata["Msg"] = data.status;
+    Ddata["FW"] = data.fwVersion;
+    Ddata["HW"] = data.hwVersion;
+    Ddata["uptime"] = data.uptimeSec;
+    Ddata["free_heap"] = data.freeHeap;
+    Ddata["hora"] = data.hora;
+    Ddata["batt"] = data.battery;
+    Ddata["RSSI"] = data.rssi;
+    Ddata["SSID"] = data.ssid;
+    Ddata["Location"] = data.location;
+    Ddata["seq"] = data.seq;
+    Ddata["boot_reason"] = data.bootReason;
+    Ddata["publicados"] = data.published;
+    Ddata["enviados"] = data.sent;
+    Ddata["fallidos"] = data.failed;
+    Ddata["Tstamp"] = data.timestamp;
+    Ddata["Mac"] = data.mac;
+    Ddata["Ip"] = data.ip;
     size_t n = serializeJson(doc, _Manejo_Data, sizeof(_Manejo_Data));
     if (n >= sizeof(_Manejo_Data)) {
       Serial.println(F("WARNING: Manejo JSON truncated!"));
