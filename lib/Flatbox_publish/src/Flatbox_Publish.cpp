@@ -12,15 +12,23 @@ flatbox::flatbox(String UID_Board){
     _UID_Board = UID_Board;
 }
 
-char * flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_Board, int Nivel_RSSI, int Mensajes_publicados, int Mensajes_enviados, int Mensajes_Fallidos, String Time_Stamp, String Direccion_Mac, String Direccion_IP)
+char * flatbox::Administracion_Dispositivo(String Mensaje_Estado, float Voltaje_Board, int Nivel_RSSI, int Mensajes_publicados, int Mensajes_enviados, int Mensajes_Fallidos, String Time_Stamp, String Direccion_Mac, String Direccion_IP, const char* device_id, const char* fw_version, const char* hw_version, int hora, unsigned long uptime_sec, uint32_t free_heap, const char* ssid, const char* location)
 {
     JsonDocument doc;
     JsonObject d = doc["d"].to<JsonObject>();
     JsonObject Ddata = d["Ddata"].to<JsonObject>();
     Ddata["ChipID"] = _UID_Board;
+    Ddata["DeviceID"] = device_id;
     Ddata["Msg"] = Mensaje_Estado;
+    Ddata["FW"] = fw_version;
+    Ddata["HW"] = hw_version;
+    Ddata["uptime"] = uptime_sec;
+    Ddata["free_heap"] = free_heap;
+    Ddata["hora"] = hora;
     Ddata["batt"] = Voltaje_Board;
     Ddata["RSSI"] = Nivel_RSSI;
+    Ddata["SSID"] = ssid;
+    Ddata["Location"] = location;
     Ddata["publicados"] = Mensajes_publicados;
     Ddata["enviados"] = Mensajes_enviados;
     Ddata["fallidos"] = Mensajes_Fallidos;

@@ -49,8 +49,9 @@ Open serial monitor at **115200 baud** before starting each test.
 | 3 | MQTT attempt #2 | `MQTT attempt #2`, `failed, rc=<code>` | White flash (short) | -- | -- |
 | 4 | MQTT attempt #3 | `MQTT attempt #3`, `failed, rc=<code>` | White flash (short) | -- | -- |
 | 5 | MQTT attempt #4 | `MQTT attempt #4`, `failed, rc=<code>` | White flash (short) | -- | -- |
-| 6 | WiFiManager fallback | `MQTT connect failed after 4 attempts, opening WiFiManager...` | Purple ON | Medium beep x2 | WiFi portal active |
-| 7 | Connect to `flatwifi` AP, correct MQTT/NTP/Device_ID settings | WiFiManager portal logs | -- | -- | -- |
+| 6a | Fallback WiFi (if configured) | `MQTT connect failed after 4 attempts`, `Intentando red WiFi de respaldo: <ssid>`, `Conectado a red WiFi de respaldo` | -- | -- | Retries MQTT |
+| 6b | Fallback WiFi not configured or fails | `Opening WiFiManager...` | Purple ON | Medium beep x2 | WiFi portal active |
+| 7 | Connect to `flatwifi` AP, correct settings | WiFiManager portal (includes Location, Fallback SSID/Pass fields) | -- | -- | -- |
 | 8 | Save and restart | -- | -- | -- | ESP.restart() |
 
 **PubSubClient return codes (rc= value):**
@@ -65,7 +66,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | 4 | Bad credentials |
 | 5 | Not authorized |
 
-**PASS criteria:** Exactly 4 attempts logged with rc= codes. WiFiManager config portal opens after 4th failure. After saving corrected MQTT settings, device restarts and connects successfully (Flow 1).
+**PASS criteria:** Exactly 4 MQTT attempts logged with rc= codes. If fallback WiFi is configured, device tries it first. If fallback succeeds, MQTT is retried on new network. If fallback fails or is not configured, WiFiManager config portal opens. After saving corrected settings, device restarts and connects successfully (Flow 1).
 
 ---
 
@@ -79,7 +80,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | 2 | Keep holding through 2s window | WiFiManager portal starts | -- | -- | WiFi portal active |
 | 3 | Connect to AP, configure WiFi + MQTT + NTP + Device_ID | WiFiManager logs | -- | -- | Continues to NTP/MQTT |
 
-**PASS criteria:** WiFiManager configuration portal is accessible. Portal shows fields for: MQTT Server, Port, User, Password, NTP Server, NTP Interval, and Device_ID. After saving, device connects to WiFi and proceeds to MQTT setup.
+**PASS criteria:** WiFiManager configuration portal is accessible. Portal shows fields for: MQTT Server, Port, User, Password, NTP Server, NTP Interval, Device_ID, Location, Fallback_SSID, and Fallback_Pass. After saving, device connects to WiFi and proceeds to MQTT setup.
 
 ---
 
@@ -425,6 +426,49 @@ Open serial monitor at **115200 baud** before starting each test.
 
 ---
 
+## Flow 17e: MQTT Remote Update -- WiFi Credential Push
+
+**Precondition:** Device in IDLE state, MQTT connected.
+
+| Step | Action | Expected Serial Output | LED | Buzzer | Next State |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Publish `{"wifi_ssid": "NewNet", "wifi_pass": "NewPass123"}` to `iotdm-1/device/update` | `Remote WiFi credential update received`, `Stored new WiFi creds as fallback: NewNet`, `config.json guardado` | -- | -- | Stays IDLE |
+| 2 | Disconnect primary WiFi AP | Device loses WiFi, MQTT reconnect fails | -- | -- | -- |
+| 3 | Device tries fallback | `Intentando red WiFi de respaldo: NewNet` | -- | -- | -- |
+| 4a | Fallback available | `Conectado a red WiFi de respaldo`, MQTT reconnects | -- | -- | IDLE |
+| 4b | Fallback unavailable | `Fallo conexion a red WiFi de respaldo`, opens WiFiManager | Purple ON | Medium beep x2 | WiFi portal |
+
+**PASS criteria:** New credentials are persisted to LittleFS. On primary WiFi failure, device attempts fallback SSID before falling back to WiFiManager portal.
+
+---
+
+## Flow 17f: MQTT Remote Update -- Location Update
+
+**Precondition:** Device in IDLE state, MQTT connected.
+
+| Step | Action | Expected Serial Output | LED | Buzzer | Next State |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Publish `{"location": "Building A, Floor 2"}` to `iotdm-1/device/update` | `Updated location: Building A, Floor 2`, `config.json guardado` | -- | -- | Stays IDLE |
+| 2 | Wait for next heartbeat | Heartbeat JSON contains `"Location": "Building A, Floor 2"` | -- | -- | -- |
+
+**PASS criteria:** Location persists to LittleFS. Appears in subsequent heartbeat payloads. Survives reboot.
+
+---
+
+## Flow 17g: Startup -- Fallback WiFi
+
+**Precondition:** Primary WiFi network unavailable. Fallback SSID configured in `config.json`. Fallback network available.
+
+| Step | Action | Expected Serial Output | LED | Buzzer | Next State |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Power on, primary WiFi fails | `Empezando Configuracion de WIFI en Automatico`, WiFiManager autoConnect fails | Purple ON | Short beep x2 | -- |
+| 2 | Fallback WiFi attempted | `Intentando red WiFi de respaldo: <ssid>`, `Conectado a red WiFi de respaldo` | -- | -- | -- |
+| 3 | NTP + MQTT proceed normally | Normal startup from step 5 of Flow 1 | -- | -- | IDLE |
+
+**PASS criteria:** Device connects to fallback WiFi without user intervention. Proceeds to NTP sync and MQTT connection.
+
+---
+
 ## Flow 18: MQTT Response Message
 
 **Precondition:** Device in IDLE state, MQTT connected, subscribed to response topic.
@@ -476,6 +520,9 @@ Open serial monitor at **115200 baud** before starting each test.
 | 17b | Remote OTA Trigger | `{"ota": true}` on update topic | Enters OTA mode (same as Flow 3) | [ ] |
 | 17c | Remote RGB Control | RGB/hex/on/off on ctrl topic | LED color changes, PWM dimming works | [ ] |
 | 17d | Remote Buzzer | `{"beep": N}` on ctrl topic | Buzzer sounds for N seconds | [ ] |
+| 17e | Remote WiFi Push | `wifi_ssid`+`wifi_pass` on update topic | Creds stored as fallback, used on next reconnect | [ ] |
+| 17f | Remote Location | `location` on update topic | Location persisted, appears in heartbeat | [ ] |
+| 17g | Startup Fallback WiFi | Primary WiFi down, fallback configured | Connects to fallback without user intervention | [ ] |
 | 18 | Response Message | MQTT response message | JSON printed, no state change | [ ] |
 | 19 | Unknown State | Invalid fsm_state value | "FSM: unknown state", recovers to IDLE | [ ] |
 

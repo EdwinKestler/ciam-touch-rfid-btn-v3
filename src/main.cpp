@@ -35,6 +35,9 @@ struct BtnConf {
     char NTPClient_SERVER[24] = "time-a-g.nist.gov";                                                //Variable de Direccion de Servidor de NTP
     char  NTPClient_interval [6];                                                                    //Variable de intervalo de sincronizacion de hora por medio de NTP
     char  Device_ID[16] = "CIAM";                                                                    //Variable de identificacion de despliegue/sitio
+    char  Location[48] = "";                                                                         //Variable de ubicacion fisica del dispositivo (ej: "Edificio A, Piso 2")
+    char  Wifi_Fallback_SSID[33] = "";                                                               //SSID de respaldo si la red primaria falla
+    char  Wifi_Fallback_Pass[64] = "";                                                               //Password de la red WiFi de respaldo
 };
 
 BtnConf btnconfig;                                                                                  //Objeto de estructura de configuracion
@@ -193,6 +196,9 @@ void Read_Configuration_JSON(){
                 sizeof(btnconfig.NTPClient_SERVER));                                                //Parametro de Configuracion del Servidor de NTP
         strlcpy(btnconfig.NTPClient_interval, doc["NTPClient_interval"] | "60000", sizeof(btnconfig.NTPClient_interval));                                  //Parametro de Configuracion del Intervalo de actulizacion de hora por medio de consulta al Servicio de NTP
         strlcpy(btnconfig.Device_ID, doc["Device_ID"] | "CIAM", sizeof(btnconfig.Device_ID));         //Parametro de Identificacion de despliegue/sitio
+        strlcpy(btnconfig.Location, doc["Location"] | "", sizeof(btnconfig.Location));                //Parametro de ubicacion fisica del dispositivo
+        strlcpy(btnconfig.Wifi_Fallback_SSID, doc["Wifi_Fallback_SSID"] | "", sizeof(btnconfig.Wifi_Fallback_SSID));
+        strlcpy(btnconfig.Wifi_Fallback_Pass, doc["Wifi_Fallback_Pass"] | "", sizeof(btnconfig.Wifi_Fallback_Pass));
       }
       configFile.close();
     }
@@ -204,7 +210,8 @@ void Read_Configuration_JSON(){
 void copyWifiManagerParams(
     WiFiManagerParameter &srv, WiFiManagerParameter &port, WiFiManagerParameter &usr,
     WiFiManagerParameter &pwd, WiFiManagerParameter &ntp_srv, WiFiManagerParameter &ntp_int,
-    WiFiManagerParameter &dev_id)
+    WiFiManagerParameter &dev_id, WiFiManagerParameter &loc,
+    WiFiManagerParameter &fb_ssid, WiFiManagerParameter &fb_pass)
 {
   strlcpy(btnconfig.MQTT_Server, srv.getValue(), sizeof(btnconfig.MQTT_Server));
   strlcpy(btnconfig.MQTT_Port, port.getValue(), sizeof(btnconfig.MQTT_Port));
@@ -213,6 +220,9 @@ void copyWifiManagerParams(
   strlcpy(btnconfig.NTPClient_SERVER, ntp_srv.getValue(), sizeof(btnconfig.NTPClient_SERVER));
   strlcpy(btnconfig.NTPClient_interval, ntp_int.getValue(), sizeof(btnconfig.NTPClient_interval));
   strlcpy(btnconfig.Device_ID, dev_id.getValue(), sizeof(btnconfig.Device_ID));
+  strlcpy(btnconfig.Location, loc.getValue(), sizeof(btnconfig.Location));
+  strlcpy(btnconfig.Wifi_Fallback_SSID, fb_ssid.getValue(), sizeof(btnconfig.Wifi_Fallback_SSID));
+  strlcpy(btnconfig.Wifi_Fallback_Pass, fb_pass.getValue(), sizeof(btnconfig.Wifi_Fallback_Pass));
 
   if(shouldSaveConfig){
     Serial.println(F("Guardando Cambios de Configuracion"));
@@ -224,6 +234,9 @@ void copyWifiManagerParams(
     doc["NTPClient_SERVER"] = btnconfig.NTPClient_SERVER;
     doc["NTPClient_interval"] = btnconfig.NTPClient_interval;
     doc["Device_ID"] = btnconfig.Device_ID;
+    doc["Location"] = btnconfig.Location;
+    doc["Wifi_Fallback_SSID"] = btnconfig.Wifi_Fallback_SSID;
+    doc["Wifi_Fallback_Pass"] = btnconfig.Wifi_Fallback_Pass;
 
     File configFile = LittleFS.open("/config.json", "w");
     if(!configFile){
@@ -240,7 +253,8 @@ void copyWifiManagerParams(
 void setupWifiManagerParams(WiFiManager &wm,
     WiFiManagerParameter &srv, WiFiManagerParameter &port, WiFiManagerParameter &usr,
     WiFiManagerParameter &pwd, WiFiManagerParameter &ntp_srv, WiFiManagerParameter &ntp_int,
-    WiFiManagerParameter &dev_id)
+    WiFiManagerParameter &dev_id, WiFiManagerParameter &loc,
+    WiFiManagerParameter &fb_ssid, WiFiManagerParameter &fb_pass)
 {
   wm.setSaveConfigCallback(saveConfigCallback);
   wm.addParameter(&srv);
@@ -250,6 +264,9 @@ void setupWifiManagerParams(WiFiManager &wm,
   wm.addParameter(&ntp_int);
   wm.addParameter(&ntp_srv);
   wm.addParameter(&dev_id);
+  wm.addParameter(&loc);
+  wm.addParameter(&fb_ssid);
+  wm.addParameter(&fb_pass);
 }
 //--------------------------------------------------------------------------------------------------//Boot to on demand WifiManager
 void BOOT_TO_On_Demand_Wifi_Manager(){
@@ -260,10 +277,14 @@ void BOOT_TO_On_Demand_Wifi_Manager(){
   WiFiManagerParameter custom_NTPClient_SERVER("NTPServer","NTPClient_SERVER",btnconfig.NTPClient_SERVER,64);
   WiFiManagerParameter custom_NTPClient_interval("NTPInterval","NTPClient_interval",btnconfig.NTPClient_interval,6);
   WiFiManagerParameter custom_Device_ID("deviceid","Device_ID",btnconfig.Device_ID,16);
+  WiFiManagerParameter custom_Location("location","Location",btnconfig.Location,48);
+  WiFiManagerParameter custom_Fallback_SSID("fb_ssid","Fallback_SSID",btnconfig.Wifi_Fallback_SSID,33);
+  WiFiManagerParameter custom_Fallback_Pass("fb_pass","Fallback_Pass",btnconfig.Wifi_Fallback_Pass,64);
 
   WiFiManager wifiManager;
   setupWifiManagerParams(wifiManager, custom_mqtt_server, custom_mqtt_port, custom_mqtt_user,
-                         custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval, custom_Device_ID);
+                         custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval, custom_Device_ID,
+                         custom_Location, custom_Fallback_SSID, custom_Fallback_Pass);
 
   Serial.println(F("Empezando Configuracion de WIFI Bajo Demanda"));
   Purpura.COn();
@@ -275,7 +296,8 @@ void BOOT_TO_On_Demand_Wifi_Manager(){
   }
 
   copyWifiManagerParams(custom_mqtt_server, custom_mqtt_port, custom_mqtt_user,
-                        custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval, custom_Device_ID);
+                        custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval, custom_Device_ID,
+                        custom_Location, custom_Fallback_SSID, custom_Fallback_Pass);
 }
 //--------------------------------------------------------------------------------------------------//Boot to auto WifiManager
 void BOOT_TO_Wifi_Manager(){
@@ -286,10 +308,14 @@ void BOOT_TO_Wifi_Manager(){
   WiFiManagerParameter custom_NTPClient_SERVER("NTPServer","NTPClient_SERVER",btnconfig.NTPClient_SERVER,64);
   WiFiManagerParameter custom_NTPClient_interval("NTPInterval","NTPClient_interval",btnconfig.NTPClient_interval,6);
   WiFiManagerParameter custom_Device_ID("deviceid","Device_ID",btnconfig.Device_ID,16);
+  WiFiManagerParameter custom_Location("location","Location",btnconfig.Location,48);
+  WiFiManagerParameter custom_Fallback_SSID("fb_ssid","Fallback_SSID",btnconfig.Wifi_Fallback_SSID,33);
+  WiFiManagerParameter custom_Fallback_Pass("fb_pass","Fallback_Pass",btnconfig.Wifi_Fallback_Pass,64);
 
   WiFiManager wifiManager;
   setupWifiManagerParams(wifiManager, custom_mqtt_server, custom_mqtt_port, custom_mqtt_user,
-                         custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval, custom_Device_ID);
+                         custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval, custom_Device_ID,
+                         custom_Location, custom_Fallback_SSID, custom_Fallback_Pass);
 
   Serial.println(F("Empezando Configuracion de WIFI en Automatico"));
   Purpura.COn();
@@ -304,7 +330,52 @@ void BOOT_TO_Wifi_Manager(){
   }
 
   copyWifiManagerParams(custom_mqtt_server, custom_mqtt_port, custom_mqtt_user,
-                        custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval, custom_Device_ID);
+                        custom_mqtt_pass, custom_NTPClient_SERVER, custom_NTPClient_interval, custom_Device_ID,
+                        custom_Location, custom_Fallback_SSID, custom_Fallback_Pass);
+}
+//--------------------------------------------------------------------------------------------------//Funcion para guardar config.json desde btnconfig (para actualizaciones remotas)
+void saveConfigToLittleFS() {
+  JsonDocument doc;
+  doc["MQTT_Server"] = btnconfig.MQTT_Server;
+  doc["MQTT_Port"] = btnconfig.MQTT_Port;
+  doc["MQTT_User"] = btnconfig.MQTT_User;
+  doc["MQTT_Password"] = btnconfig.MQTT_Password;
+  doc["NTPClient_SERVER"] = btnconfig.NTPClient_SERVER;
+  doc["NTPClient_interval"] = btnconfig.NTPClient_interval;
+  doc["Device_ID"] = btnconfig.Device_ID;
+  doc["Location"] = btnconfig.Location;
+  doc["Wifi_Fallback_SSID"] = btnconfig.Wifi_Fallback_SSID;
+  doc["Wifi_Fallback_Pass"] = btnconfig.Wifi_Fallback_Pass;
+
+  File configFile = LittleFS.open("/config.json", "w");
+  if (!configFile) {
+    Serial.println(F("ERROR: no se pudo abrir config.json para escritura"));
+    return;
+  }
+  serializeJson(doc, configFile);
+  configFile.close();
+  Serial.println(F("config.json guardado"));
+}
+//--------------------------------------------------------------------------------------------------//Funcion para intentar conectar a la red WiFi de respaldo
+bool tryFallbackWifi() {
+  if (strlen(btnconfig.Wifi_Fallback_SSID) == 0) {
+    return false;
+  }
+  Serial.print(F("Intentando red WiFi de respaldo: "));
+  Serial.println(btnconfig.Wifi_Fallback_SSID);
+  WiFi.begin(btnconfig.Wifi_Fallback_SSID, btnconfig.Wifi_Fallback_Pass);
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println(F("Conectado a red WiFi de respaldo"));
+    return true;
+  }
+  Serial.println(F("Fallo conexion a red WiFi de respaldo"));
+  return false;
 }
 //--------------------------------------------------------------------------------------------------//funcion donde se define el inicio a Actulizacion por OTA
 void BOOT_TO_OTA() {
@@ -398,6 +469,35 @@ void handleUpdate(byte* payload) {
   if (doc["rssi_threshold"].is<int>()) {
     rssi_low_threshold = doc["rssi_threshold"];
     Serial.printf("Updated rssi_threshold: %d\n", rssi_low_threshold);
+  }
+  if (doc["heartbeat_minutes"].is<int>()) {
+    heartbeat_minutes = constrain((int)doc["heartbeat_minutes"], 1, 1440);
+    Serial.printf("Updated heartbeat_minutes: %d\n", heartbeat_minutes);
+  }
+
+  // Remote location update
+  if (doc["location"].is<const char*>()) {
+    strlcpy(btnconfig.Location, doc["location"], sizeof(btnconfig.Location));
+    Serial.printf("Updated location: %s\n", btnconfig.Location);
+    saveConfigToLittleFS();
+  }
+
+  // Remote WiFi credential update — stores new creds, device will use them on next reconnect
+  if (doc["wifi_ssid"].is<const char*>() && doc["wifi_pass"].is<const char*>()) {
+    Serial.println(F("Remote WiFi credential update received"));
+    // Store as fallback so device can try them if primary fails
+    strlcpy(btnconfig.Wifi_Fallback_SSID, doc["wifi_ssid"], sizeof(btnconfig.Wifi_Fallback_SSID));
+    strlcpy(btnconfig.Wifi_Fallback_Pass, doc["wifi_pass"], sizeof(btnconfig.Wifi_Fallback_Pass));
+    saveConfigToLittleFS();
+    Serial.printf("Stored new WiFi creds as fallback: %s\n", btnconfig.Wifi_Fallback_SSID);
+  }
+
+  // Remote fallback SSID update (separate from primary WiFi push)
+  if (doc["fallback_ssid"].is<const char*>() && doc["fallback_pass"].is<const char*>()) {
+    strlcpy(btnconfig.Wifi_Fallback_SSID, doc["fallback_ssid"], sizeof(btnconfig.Wifi_Fallback_SSID));
+    strlcpy(btnconfig.Wifi_Fallback_Pass, doc["fallback_pass"], sizeof(btnconfig.Wifi_Fallback_Pass));
+    saveConfigToLittleFS();
+    Serial.printf("Updated fallback WiFi: %s\n", btnconfig.Wifi_Fallback_SSID);
   }
 
   // Remote OTA trigger
@@ -539,7 +639,15 @@ void mqttConnect() {
       Blanco.CFlash(flash_corto);
       delay(3000);
     }
-    Serial.println(F("MQTT connect failed after 4 attempts, opening WiFiManager..."));
+    Serial.println(F("MQTT connect failed after 4 attempts"));
+    // Try fallback WiFi before opening WiFiManager portal
+    if (tryFallbackWifi()) {
+      Serial.println(F("Fallback WiFi connected, retrying MQTT..."));
+      Sipaddrs = WiFi.localIP().toString();
+      Smacaddrs = String(WiFi.macAddress());
+      return;  // caller will retry MQTT on new network
+    }
+    Serial.println(F("Opening WiFiManager..."));
     BOOT_TO_On_Demand_Wifi_Manager();
     ESP.restart();
   }
@@ -613,7 +721,11 @@ void initManagedDevice() {
   metadata["flash_largo"] = flash_largo;
   metadata["fail_threshold"] = fail_threshold;
   metadata["rssi_threshold"] = rssi_low_threshold;
+  metadata["heartbeat_minutes"] = heartbeat_minutes;
   metadata["timeZone"] = timeZone;
+  metadata["location"] = btnconfig.Location;
+  metadata["wifi_ssid"] = WiFi.SSID();
+  metadata["fallback_ssid"] = btnconfig.Wifi_Fallback_SSID;
   JsonObject supports = d["supports"].to<JsonObject>();
   supports["deviceActions"] = true;
   JsonObject deviceInfo = d["deviceInfo"].to<JsonObject>();
@@ -621,7 +733,7 @@ void initManagedDevice() {
   deviceInfo["MQTT_server"] = btnconfig.MQTT_Server;
   deviceInfo["MacAddress"] = Smacaddrs;
   deviceInfo["IPAddress"]= Sipaddrs;
-  static char buff[500];
+  static char buff[600];
   serializeJson(doc, buff, sizeof(buff));
   Serial.println(F("publishing device manageTopic metadata:"));
   Serial.println(buff);
@@ -685,10 +797,17 @@ void setup() {
   //Revisar si el boton ya cuenta con configuracion de wifi si no enviar a aplicacion de configuracion.
   if (OTA_ENABLED == LOW){
     //configuracion automatica del wifi
-    while ( WiFi.status() != WL_CONNECTED ) {
-      BOOT_TO_Wifi_Manager();
-      delay(Universal_1_sec_Interval);
-      Serial.print ( "." );
+    BOOT_TO_Wifi_Manager();
+    if (WiFi.status() != WL_CONNECTED) {
+      // Primary WiFi failed, try fallback before giving up
+      if (!tryFallbackWifi()) {
+        // Fallback also failed, keep retrying primary
+        while (WiFi.status() != WL_CONNECTED) {
+          BOOT_TO_Wifi_Manager();
+          delay(Universal_1_sec_Interval);
+          Serial.print(".");
+        }
+      }
     }
     Serial.print(F("Wifi conectado, Direccion de IP Asignado: "));
     Serial.println(WiFi.localIP());
@@ -797,7 +916,12 @@ void readTag() {
     }
     count = 0;
     // Validate RFID frame: must have extracted card ID bytes (positions 4-7)
-    if (inputString.length() == 0) {
+    // Also reject all-zero IDs (phantom reads when no card is present)
+    bool allZero = true;
+    for (unsigned int i = 0; i < inputString.length(); i++) {
+      if (inputString[i] != '0' && inputString[i] != '\0') { allZero = false; break; }
+    }
+    if (inputString.length() == 0 || allZero) {
       Serial.println(F("RFID: invalid frame, discarding"));
       clearBufferArray();
       return;
@@ -832,7 +956,7 @@ void readBtn() {
 //-------- Data de Manejo RF_ID_Manejo. Publish the data to MQTT server, the payload should not be bigger than 45 characters name field and data field counts. --------//
 void publishRF_ID_Manejo () {
   sent++;
-  if (client.publish(manageTopic, Flatbox_Json.Administracion_Dispositivo(msg,VBat,WifiSignal,published,sent,failed,ISO8601,Smacaddrs,Sipaddrs))) {
+  if (client.publish(manageTopic, Flatbox_Json.Administracion_Dispositivo(msg,VBat,WifiSignal,published,sent,failed,ISO8601,Smacaddrs,Sipaddrs,btnconfig.Device_ID,FirmwareVersion,HardwareVersion,hora,millis()/1000,ESP.getFreeHeap(),WiFi.SSID().c_str(),btnconfig.Location))) {
     Serial.println(F("enviado data de dispositivo:OK"));
     published ++;
     failed = failed / 2;  // decay instead of reset — masks persistent degradation less
@@ -949,7 +1073,7 @@ void loop() {
       if (fsm_state != STATE_IDLE) break;
       NormalReset();
       checkalarms();
-      if (millis() - Last_Update_Millis > 30 * 60 * Universal_1_sec_Interval) {
+      if (millis() - Last_Update_Millis > (unsigned long)heartbeat_minutes * 60 * Universal_1_sec_Interval) {
         Last_Update_Millis = millis(); //Actulizar la ultima hora de envio
         fsm_state = STATE_UPDATE;
         break;

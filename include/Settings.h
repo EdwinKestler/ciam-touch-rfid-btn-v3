@@ -28,6 +28,7 @@ char  rgbTopic[]      =   "iotdm-1/device/ctrl";
 //--------------------------------------------------------------------------------------------------//Parametros de Tiempos de espera
 unsigned long Universal_1_sec_Interval  = 1000UL;                                                   //Variable configurable remotamente sobre el interbalo de publicacion
 unsigned long Btn_conf_Mode_Interval = 2000UL;                                                      //variable configurable remotamente sobre el intervalo de espera para modo de funcionamiento de boton.
+int heartbeat_minutes = 30;                                                                          //intervalo de heartbeat en minutos, configurable remotamente
 
 //-------- Umbral de señal WiFi baja (dBm) para alarmas y reportes
 int rssi_low_threshold = -75;

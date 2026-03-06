@@ -20,6 +20,10 @@ IoT device firmware for an ESP8266-based (WeMos D1 mini) RFID and capacitive tou
 - Remote RGB LED control via MQTT (RGB values, hex color, on/off)
 - Remote buzzer activation via MQTT (configurable duration)
 - Remote parameter update via MQTT (publish interval, thresholds, tone/flash durations, OTA trigger)
+- WiFi SSID and installation location reported in heartbeat payload
+- Fallback WiFi support (secondary SSID/password tried if primary network fails)
+- Remote WiFi credential push via MQTT (stored as fallback, used on next reconnect)
+- Installation location configurable via WiFiManager portal and remotely via MQTT
 
 ## Hardware
 
@@ -221,6 +225,10 @@ All parameters are optional -- include only the ones you want to change. Multipl
 | `flash_largo` | unsigned long | 1000 | Long LED flash duration (ms) |
 | `fail_threshold` | int | 150 | MQTT publish failures before auto-reboot |
 | `rssi_threshold` | int | -75 | WiFi signal alarm threshold (dBm) |
+| `heartbeat_minutes` | int | 30 | Heartbeat interval in minutes (1-1440) |
+| `location` | string | -- | Installation location (saved to LittleFS) |
+| `wifi_ssid` + `wifi_pass` | string | -- | Push new WiFi credentials (stored as fallback) |
+| `fallback_ssid` + `fallback_pass` | string | -- | Set/update fallback WiFi network |
 | `ota` | bool | -- | Set `true` to trigger OTA mode remotely |
 
 Current parameter values are reported in the `manageTopic` metadata payload on device startup.
@@ -238,13 +246,16 @@ Stored as `/config.json` on the device flash:
 | NTPClient_SERVER      | time-a-g.nist.gov    |
 | NTPClient_interval    | 60000 (ms)           |
 | Device_ID             | CIAM                 |
+| Location              | (empty)              |
+| Wifi_Fallback_SSID    | (empty)              |
+| Wifi_Fallback_Pass    | (empty)              |
 
 ## Startup Behavior
 
 1. Load config from LittleFS, build MQTT client ID from Device_ID
 2. **First 2-second window:** Hold button to enter WiFi configuration portal
 3. **Second 2-second window:** Hold button to enter OTA update mode (password-protected)
-4. Otherwise: Auto-connect WiFi, sync NTP (5 retries max), connect MQTT (4 retries, falls back to WiFiManager on failure), enter IDLE state
+4. Otherwise: Auto-connect WiFi (if primary fails, tries fallback SSID if configured), sync NTP (5 retries max), connect MQTT (4 retries, tries fallback WiFi, then falls back to WiFiManager on failure), enter IDLE state
 
 ## Build
 
@@ -290,6 +301,17 @@ python espota.py -i 192.168.4.1 -p 8266 -a FLATB0X_OTA -f .pio/build/d1_mini/fir
 - ArduinoOTA
 - ESP8266WebServer / ESP8266mDNS / DNSServer
 - LittleFS (FS)
+
+## WiFi Resilience
+
+The device uses a multi-layer WiFi recovery strategy:
+
+1. **Primary WiFi** -- stored by WiFiManager in ESP8266 flash. If the AP is replaced with same SSID/password, the device reconnects automatically.
+2. **Fallback WiFi** -- secondary SSID/password stored in LittleFS (`config.json`). Tried automatically if primary WiFi fails at startup or after MQTT connection failures.
+3. **Remote credential push** -- send new WiFi credentials via MQTT before rotating the AP. The device stores them as fallback and will use them on next reconnect: `{"wifi_ssid": "NewNetwork", "wifi_pass": "NewPassword"}`
+4. **WiFiManager portal** -- if both primary and fallback fail, the device opens the config portal for manual reconfiguration.
+
+**Heartbeat location tracking:** The `Location` field (set during installation via WiFiManager or remotely via MQTT) is reported in every heartbeat. The dashboard can use `device_id` + `Location` + `SSID` to identify where a device is installed and detect offline devices when heartbeats stop arriving (expected interval: `heartbeat_minutes`, default 30 min).
 
 ## Known Limitations
 
@@ -403,6 +425,20 @@ Remote command infrastructure:
 - Added remote OTA trigger via `{"ota": true}` on update topic
 - Converted `FAILTRESHOLD` and `RSSI_LOW_THRESHOLD` from `#define` to runtime variables (`fail_threshold`, `rssi_low_threshold`) so they can be changed remotely
 - Updated `initManagedDevice()` metadata to report all configurable parameter values to broker on startup
+
+WiFi resilience and device location:
+
+- Added `Location` field to BtnConf -- configurable via WiFiManager portal and remotely via MQTT update topic, persisted in LittleFS
+- Added `Wifi_Fallback_SSID` / `Wifi_Fallback_Pass` to BtnConf -- fallback WiFi credentials tried if primary network fails
+- Added `tryFallbackWifi()` -- attempts connection to fallback SSID with 15s timeout before falling back to WiFiManager portal
+- Added `saveConfigToLittleFS()` helper for remote config persistence (location, WiFi credential updates)
+- Integrated fallback WiFi into startup WiFi loop and MQTT connect failure path
+- Added `WiFi.SSID()` and `Location` to heartbeat payload (`Administracion_Dispositivo`)
+- Added remote WiFi credential push via update topic (`wifi_ssid` + `wifi_pass`) -- stores as fallback for next reconnect
+- Added remote fallback SSID update via update topic (`fallback_ssid` + `fallback_pass`)
+- Added remote location update via update topic (`location`) -- persisted to LittleFS immediately
+- Increased `_Manejo_Data` buffer from 450 to 550 bytes to accommodate SSID + Location fields
+- Increased `initManagedDevice()` metadata buffer from 500 to 600 bytes
 
 Code quality:
 
