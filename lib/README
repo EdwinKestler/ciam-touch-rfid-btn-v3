@@ -2,7 +2,7 @@
 
 IoT device firmware for an ESP8266-based (WeMos D1 mini) RFID and capacitive touch button reader that publishes events to a Flatbox cloud platform via MQTT.
 
-**Firmware Version:** V5.00 | **Hardware Version:** V3.00
+**Firmware Version:** V6.00 | **Hardware Version:** V3.00
 
 ## Features
 
@@ -53,7 +53,7 @@ IoT device firmware for an ESP8266-based (WeMos D1 mini) RFID and capacitive tou
 
 ```
 ├── include/
-│   └── Settings.h              # OTA credentials, MQTT topics, version info, runtime-configurable thresholds
+│   └── Settings.h              # Compile-time constants (extern declarations)
 ├── lib/
 │   ├── Buzzer/src/             # BTN_Bzzr - piezo buzzer control
 │   ├── Flatbox_publish/src/    # flatbox - MQTT JSON payload formatting
@@ -62,7 +62,14 @@ IoT device firmware for an ESP8266-based (WeMos D1 mini) RFID and capacitive tou
 │   ├── TimeESP/src/            # TimeLibEsp - date/time management
 │   └── TouchBtn/src/           # TouchPadButton - capacitive input
 ├── src/
-│   └── main.cpp                # Application entry point and FSM logic
+│   ├── main.cpp                # FSM, setup, loop, sensor read/publish
+│   ├── pins.h                  # Centralized pin definitions
+│   ├── feedback.h/.cpp         # LED + buzzer abstraction layer
+│   ├── config.h/.cpp           # BtnConf struct, LittleFS read/save, XOR obfuscation
+│   ├── ota.h/.cpp              # OTA update mode
+│   ├── wifi_setup.h/.cpp       # WiFiManager portals, fallback WiFi
+│   ├── mqtt_manager.h/.cpp     # MQTT connect/reconnect, callback dispatch, subscriptions
+│   └── Settings.cpp            # Definitions for Settings.h constants and runtime vars
 └── platformio.ini              # Build configuration (espressif8266, d1_mini)
 ```
 
@@ -334,6 +341,26 @@ The device uses a multi-layer WiFi recovery strategy:
 - RFID frame validation is length-based only (no checksum verification -- reader-model-dependent)
 
 ## Changelog
+
+### v6.00 - Modular Architecture Refactor
+
+Codebase restructured for modularity, scalability, and extensibility. No behavior changes -- same serial output, MQTT payloads, and FSM logic. Goal: make the firmware a standard platform where sensor modules are plug-and-play.
+
+Architecture:
+
+- Extracted `src/pins.h` -- all hardware pin definitions centralized in one file. Changing a pin or porting to new hardware requires editing only this file.
+- Extracted `src/feedback.h/.cpp` -- unified LED + buzzer abstraction layer with semantic functions (`feedback_ok()`, `feedback_error()`, `feedback_warning()`, etc.). Swapping LED hardware (e.g., WS2812) requires editing only `feedback.cpp`.
+- Extracted `src/config.h/.cpp` -- `BtnConf` struct, LittleFS read/save, XOR hex obfuscation, WiFiManager parameter handling, config version migration. All config logic in one place.
+- Extracted `src/ota.h/.cpp` -- OTA update mode setup isolated from main FSM.
+- Extracted `src/wifi_setup.h/.cpp` -- WiFiManager portal modes (on-demand and auto) and fallback WiFi connection logic.
+- Extracted `src/mqtt_manager.h/.cpp` -- MQTT connect/reconnect with LWT and exponential backoff, callback dispatcher (response/reboot/update/RGB handlers), topic subscriptions, and device metadata publishing.
+- Created `src/Settings.cpp` -- definitions for all `Settings.h` extern declarations. `Settings.h` now contains only extern declarations (proper header/source split, no more globals defined in a header).
+- `main.cpp` reduced from 1,245 lines to ~340 lines -- contains only FSM, setup, loop, and sensor read/publish functions.
+
+Bug fixes:
+
+- **CRASH FIX:** `LWT_PAYLOAD` was declared `PROGMEM` but passed to `PubSubClient::connect()` which reads via normal RAM access. On ESP8266, this caused Exception 3 (unaligned flash read) and crash loop at MQTT connect. Removed `PROGMEM` (payload is only 33 bytes).
+- **BUG FIX:** XOR password obfuscation (v5.00) produced raw binary bytes that are not valid UTF-8. ArduinoJson corrupted them during JSON serialize/deserialize round-trip, making MQTT password unrecoverable after first save. Replaced with hex-encoded XOR: plaintext -> XOR each byte -> hex string (e.g., `"esp8266"` -> `"c0d6d59d979393"`). Config version bumped to v3. Devices with v2 config auto-migrate (password reset to default since binary data was unrecoverable).
 
 ### v5.00 - Pre-release Hardening
 

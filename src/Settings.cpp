@@ -11,7 +11,7 @@ const char* password_OTA = "FLATB0X_OTA";
 const int timeZone = -6;  // Central Time (USA)
 
 // Version strings
-const char FirmwareVersion[] = "V5.00";
+const char FirmwareVersion[] = "V6.00";
 const char HardwareVersion[] = "V3.00";
 
 // MQTT topic names

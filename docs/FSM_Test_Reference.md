@@ -15,7 +15,7 @@ Open serial monitor at **115200 baud** before starting each test.
 | RFID Card(s) | At least 2 different cards for duplicate-read testing |
 | Stopwatch | For timing 30-min and 60-min periodic events (or modify `Universal_1_sec_Interval` to speed up) |
 
-**Tip:** For accelerated testing, temporarily set `Universal_1_sec_Interval = 100` in Settings.h. This makes 30-min timers fire in 3 minutes and 60-min timers in 6 minutes.
+**Tip:** For accelerated testing, temporarily set `Universal_1_sec_Interval = 100` in `src/Settings.cpp`. This makes 30-min timers fire in 3 minutes and 60-min timers in 6 minutes.
 
 ---
 
@@ -559,14 +559,33 @@ Open serial monitor at **115200 baud** before starting each test.
 
 ## Flow 25: Config Migration
 
-**Precondition:** Device has old `config.json` without `config_version` field (from firmware < v5.00 with IoT best practices).
+**Precondition:** Device has old `config.json` without `config_version` field (from firmware < v5.00), or has v2 config (binary XOR password, from v5.00).
 
 | Step | Action | Expected Serial Output | LED | Buzzer | Next State |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Flash new firmware, power on | `Config migration: v0 -> v2`, `config.json guardado` | -- | -- | -- |
+| 1a | Flash v6.00 on device with v0/v1 config (no `config_version`) | `Config migration: v0 -> v3`, `config.json guardado` | -- | -- | -- |
+| 1b | Flash v6.00 on device with v2 config (binary XOR) | `Config v2 detected: password corrupted by binary XOR, using default`, `Config migration: v2 -> v3`, `config.json guardado` | -- | -- | -- |
 | 2 | Subsequent reboots | No migration message (version matches) | -- | -- | -- |
 
-**PASS criteria:** Old config files are automatically migrated with new fields and MQTT password gets obfuscated. No data loss.
+**PASS criteria:** Old config files are automatically migrated to v3 (hex-encoded XOR password). v2 configs reset password to default (must re-enter via WiFiManager if not `esp8266`). No data loss for other fields.
+
+---
+
+## Flow 26: v6.00 Modular Refactor Smoke Test
+
+**Precondition:** Device flashed with v6.00 firmware.
+
+| Step | Action | Expected Serial Output | LED | Buzzer | Next State |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Power on, normal startup | Same serial output as v5.00 (boot reason, config load, WiFi, NTP, MQTT) | Same LED sequence | Same beep sequence | IDLE |
+| 2 | Present RFID card | `RFID CARD ID IS: <id>`, green flash, beep, JSON published | Green flash | Short beep | TRANSMIT_CARD -> IDLE |
+| 3 | Press touch button | `Pressed`, blue flash, beep, JSON published | Blue flash | Short beep | TRANSMIT_BOTON -> IDLE |
+| 4 | Wait for heartbeat | `STATE_UPDATE`, heartbeat published to manageTopic with retain | -- | -- | UPDATE -> TRANSMIT -> IDLE |
+| 5 | Send remote RGB command | `RGB set to R:x G:x B:x` | LED color changes | -- | IDLE |
+| 6 | Send remote buzzer | `Buzzer: N seconds`, FSM continues | -- | Non-blocking beep | IDLE |
+| 7 | Send remote reboot | `Reiniciando...`, device reboots | -- | -- | -- |
+
+**PASS criteria:** All behavior identical to v5.00. No regressions from modular refactor.
 
 ---
 
@@ -618,7 +637,8 @@ Open serial monitor at **115200 baud** before starting each test.
 | 22 | RFID Rate Limit | Same card within 60s | "rate limited", rejected. After 60s, accepted | [ ] |
 | 23 | Exponential Backoff | Broker offline | Backoff 3s->6s->12s->...->60s cap, resets on connect | [ ] |
 | 24 | Non-Blocking Buzzer | Remote beep + card read | FSM processes events during active buzzer | [ ] |
-| 25 | Config Migration | Old config.json | Auto-migrates with new fields, password obfuscated | [ ] |
+| 25 | Config Migration | Old config.json | Auto-migrates to v3 (hex XOR), v2 resets password | [ ] |
+| 26 | v6.00 Smoke Test | Normal operation | All behavior identical to v5.00 after modular refactor | [ ] |
 
 ---
 
